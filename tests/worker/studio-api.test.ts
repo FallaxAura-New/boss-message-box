@@ -277,13 +277,35 @@ describe("Studio API", () => {
       method: "POST", headers: { Cookie: first.cookie }, body: JSON.stringify({ currentPassword, newPassword }),
     });
     expect((await request("wrong", "next-studio-fixture-password")).status).toBe(400);
-    expect((await request(TEST_PASSWORD, "short")).status).toBe(400);
+    expect((await request(TEST_PASSWORD, "")).status).toBe(400);
+    expect((await request(TEST_PASSWORD, "x".repeat(1025))).status).toBe(400);
     expect((await request(TEST_PASSWORD, "next-studio-fixture-password")).status).toBe(200);
     for (const cookie of [first.cookie, second.cookie]) {
       expect((await api("/api/studio/session", { headers: { Cookie: cookie } })).status).toBe(401);
     }
     expect((await login("zd", TEST_PASSWORD)).response.status).toBe(401);
     expect((await login("zd", "next-studio-fixture-password")).response.status).toBe(200);
+  });
+
+  it.each([1, 201, 1024])("accepts a %i-character password for changing and logging in, storing only a hash", async (length) => {
+    const password = "x".repeat(length);
+    const { cookie } = await login();
+    const changed = await api("/api/studio/password", {
+      method: "POST", headers: { Cookie: cookie },
+      body: JSON.stringify({ currentPassword: TEST_PASSWORD, newPassword: password }),
+    });
+    expect(changed.status).toBe(200);
+    const stored = await testEnv.BOSS_MESSAGE_DB.prepare("SELECT password_hash FROM admins WHERE username = 'zd'").first<{ password_hash: string }>();
+    expect(stored?.password_hash).toMatch(/^pbkdf2-sha256\$100000\$/u);
+    expect(stored?.password_hash).not.toBe(password);
+    const relogin = await login("zd", password);
+    expect(relogin.response.status).toBe(200);
+    const changedAgain = await api("/api/studio/password", {
+      method: "POST", headers: { Cookie: relogin.cookie },
+      body: JSON.stringify({ currentPassword: password, newPassword: "y" }),
+    });
+    expect(changedAgain.status).toBe(200);
+    expect((await login("zd", "y")).response.status).toBe(200);
   });
 
   it("disables OTP by default without invoking the old provider", async () => {

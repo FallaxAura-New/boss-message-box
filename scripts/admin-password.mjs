@@ -42,8 +42,9 @@ function hiddenInput(prompt) {
 let directory;
 try {
   console.log(`将为 ${target === "--remote" ? "线上" : "本地"}管理员 ${username} 设置密码，并注销该账号的所有会话。`);
-  const password = await hiddenInput("新密码（12—200 字符，不回显）：");
-  if (password.length < 12 || password.length > 200) throw new Error("密码长度必须为 12—200 字符");
+  const password = await hiddenInput("新密码（非空，不回显）：");
+  if (password.length === 0) throw new Error("密码不能为空");
+  if (password.length > 1024) throw new Error("密码超过 1024 字符的技术上限");
   if (password !== await hiddenInput("再次输入新密码：")) throw new Error("两次密码不一致");
   const salt = randomBytes(16);
   const hash = `pbkdf2-sha256$100000$${salt.toString("base64url")}$${pbkdf2Sync(password, salt, 100000, 32, "sha256").toString("base64url")}`;

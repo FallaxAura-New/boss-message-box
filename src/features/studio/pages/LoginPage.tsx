@@ -2,7 +2,7 @@ import { LockKey, SignIn, User } from "@phosphor-icons/react";
 import { useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "../../../components/Button";
-import { studioLoginSchema } from "../../../shared/studio-contracts";
+import { ADMIN_PASSWORD_MAX_LENGTH, studioLoginSchema } from "../../../shared/studio-contracts";
 import { StudioApiError } from "../api";
 import { useStudioSession } from "../use-studio-session";
 
@@ -91,6 +91,7 @@ export function LoginPage() {
               type="password"
               value={password}
               autoComplete="current-password"
+              maxLength={ADMIN_PASSWORD_MAX_LENGTH}
               aria-invalid={Boolean(errors.password)}
               aria-describedby={errors.password ? "studio-password-error" : undefined}
               onChange={(event) => setPassword(event.target.value)}

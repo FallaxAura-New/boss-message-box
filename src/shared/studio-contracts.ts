@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { Topic } from "./contracts";
 
 export const STUDIO_PAGE_SIZE = 30;
+export const ADMIN_PASSWORD_MAX_LENGTH = 1024;
+const passwordSizeMessage = "密码超过 1024 字符的技术上限";
 
 export const studioModeSchema = z.enum(["normal", "live"]);
 export const studioReplyTypeSchema = z.enum(["live", "message"]);
@@ -18,7 +20,7 @@ export const moderationStatusSchema = z.enum(["pending", "kept", "filtered", "fa
 
 export const studioLoginSchema = z.object({
   username: z.string().trim().min(1, "请输入账号").max(40, "账号格式无效").transform((value) => value.toLowerCase()),
-  password: z.string().min(1, "请输入密码").max(200, "密码格式无效"),
+  password: z.string().min(1, "请输入密码").max(ADMIN_PASSWORD_MAX_LENGTH, passwordSizeMessage),
 });
 
 export const studioModeUpdateSchema = z.object({ mode: studioModeSchema });
@@ -36,8 +38,8 @@ export const studioSearchSchema = z.object({
 });
 
 export const studioPasswordSchema = z.object({
-  currentPassword: z.string().min(1, "请输入当前密码").max(200),
-  newPassword: z.string().min(12, "新密码至少需要 12 个字符").max(200, "新密码不能超过 200 个字符"),
+  currentPassword: z.string().min(1, "请输入当前密码").max(ADMIN_PASSWORD_MAX_LENGTH, passwordSizeMessage),
+  newPassword: z.string().min(1, "请输入新密码").max(ADMIN_PASSWORD_MAX_LENGTH, passwordSizeMessage),
 }).refine((value) => value.currentPassword !== value.newPassword, {
   path: ["newPassword"], message: "新密码不能与当前密码相同",
 });

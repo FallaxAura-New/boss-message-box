@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import { Button } from "../../../components/Button";
-import { studioPasswordSchema } from "../../../shared/studio-contracts";
+import { ADMIN_PASSWORD_MAX_LENGTH, studioPasswordSchema } from "../../../shared/studio-contracts";
 import { requestJson } from "../../../lib/request";
 import type { StudioOutletContext } from "../components/StudioShell";
 
@@ -39,11 +39,11 @@ export function PasswordPage() {
       <p>修改后，该账号在所有设备上的登录状态都会失效。请重新登录。</p>
       <form className="studio-reply-composer studio-password-form" onSubmit={(event) => void submit(event)}>
         <label htmlFor="current-password">当前密码</label>
-        <input id="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} disabled={busy} required maxLength={200} />
-        <label htmlFor="new-password">新密码（至少 12 字符）</label>
-        <input id="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} disabled={busy} required minLength={12} maxLength={200} />
+        <input id="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} disabled={busy} required maxLength={ADMIN_PASSWORD_MAX_LENGTH} />
+        <label htmlFor="new-password">新密码</label>
+        <input id="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} disabled={busy} required maxLength={ADMIN_PASSWORD_MAX_LENGTH} />
         <label htmlFor="confirm-password">确认新密码</label>
-        <input id="confirm-password" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} disabled={busy} required minLength={12} maxLength={200} />
+        <input id="confirm-password" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} disabled={busy} required maxLength={ADMIN_PASSWORD_MAX_LENGTH} />
         {error && <p role="alert">{error}</p>}
         <Button type="submit" loading={busy}>保存新密码</Button>
       </form>
