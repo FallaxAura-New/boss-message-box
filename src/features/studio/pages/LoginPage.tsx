@@ -2,12 +2,13 @@ import { LockKey, SignIn, User } from "@phosphor-icons/react";
 import { useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "../../../components/Button";
-import { studioLoginSchema } from "../../../shared/studio-contracts";
+import { ADMIN_PASSWORD_MAX_LENGTH, studioLoginSchema } from "../../../shared/studio-contracts";
 import { StudioApiError } from "../api";
 import { useStudioSession } from "../use-studio-session";
 
 interface LoginLocationState {
   from?: string;
+  passwordChanged?: boolean;
 }
 
 export function LoginPage() {
@@ -64,6 +65,7 @@ export function LoginPage() {
         <span className="studio-kicker">内部工作台</span>
         <h1 id="studio-login-title">登录 Studio</h1>
         <p>查看留言、管理待办并完成直播或留言回复。</p>
+        {(location.state as LoginLocationState | null)?.passwordChanged && <p role="status">密码已修改，请使用新密码登录。</p>}
         <form noValidate onSubmit={(event) => void submit(event)}>
           <label htmlFor="studio-username">账号</label>
           <div className="studio-login-control">
@@ -89,6 +91,7 @@ export function LoginPage() {
               type="password"
               value={password}
               autoComplete="current-password"
+              maxLength={ADMIN_PASSWORD_MAX_LENGTH}
               aria-invalid={Boolean(errors.password)}
               aria-describedby={errors.password ? "studio-password-error" : undefined}
               onChange={(event) => setPassword(event.target.value)}
