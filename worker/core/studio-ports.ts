@@ -113,6 +113,7 @@ export interface StudioRepository {
     currentFeedbackId: string;
     view: "unreplied" | "todo";
     topic: Topic | null;
+    direction?: "previous" | "next";
   }): Promise<string | null>;
 }
 

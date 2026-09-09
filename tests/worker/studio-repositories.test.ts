@@ -150,6 +150,12 @@ describe("D1 Studio repository", () => {
       view: "unreplied",
       topic: null,
     })).toBe("10000004-feedback");
+    expect(await repository.findNextFeedback({
+      currentFeedbackId: "10000004-feedback",
+      view: "unreplied",
+      topic: null,
+      direction: "previous",
+    })).toBe("10000006-feedback");
     expect((await repository.getFeedbackSummary("10000001-feedback"))).toMatchObject({
       status: "replied",
       replyCount: 2,
@@ -297,6 +303,7 @@ describe("D1 Studio repository", () => {
     await seedFeedback({ id: "80000001-feedback", createdAt: 1, moderationStatus: "failed" });
     const repository = new D1StudioRepository(env.BOSS_MESSAGE_DB);
     expect(await repository.findNextFeedback({ currentFeedbackId: "80000004-feedback", view: "unreplied", topic: null })).toBe("80000001-feedback");
+    expect(await repository.findNextFeedback({ currentFeedbackId: "80000001-feedback", view: "unreplied", topic: null, direction: "previous" })).toBe("80000004-feedback");
     expect((await repository.listFeedbacks({ view: "unreplied", page: 1, topic: null, snapshot: null, readyOnly: true })).items.map((item) => item.id)).toEqual(["80000004-feedback", "80000001-feedback"]);
     await expect(repository.appendReply({ id: "blocked-reply", feedbackId: "80000003-feedback", liveMode: true, replyType: "live", content: "不能提前展示", admin: ADMIN_ZD, now: 5 })).rejects.toMatchObject({ code: "FEEDBACK_NOT_READY" });
   });

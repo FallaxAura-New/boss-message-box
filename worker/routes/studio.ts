@@ -63,6 +63,7 @@ const moderationUpdateSchema = z.object({ filtered: z.boolean() });
 const nextFeedbackQuerySchema = z.object({
   view: z.enum(["unreplied", "todo"]),
   topic: topicSchema.optional(),
+  direction: z.enum(["previous", "next"]).optional().default("next"),
 });
 const exportCursorSchema = z.object({ createdAt: z.number().int().nonnegative(), id: z.string().uuid() });
 const exportQuerySchema = z.object({
@@ -257,6 +258,7 @@ studioRoutes.get("/feedbacks/:feedbackId/next", async (context) => {
       feedbackId,
       view: parsed.data.view,
       topic: parsed.data.topic ?? null,
+      direction: parsed.data.direction,
       session: context.get("studioSession"),
     }),
   );

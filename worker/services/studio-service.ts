@@ -168,10 +168,11 @@ export class StudioService {
     feedbackId: string;
     view: "unreplied" | "todo";
     topic: Topic | null;
+    direction: "previous" | "next";
     session: StudioSessionRecord;
   }): Promise<StudioNextFeedbackSuccess> {
     if (input.session.mode !== "live") {
-      throw new PublicError(403, "FORBIDDEN", "下一条仅用于直播展示模式");
+      throw new PublicError(403, "FORBIDDEN", "留言切换仅用于直播展示模式");
     }
     return {
       ok: true,
@@ -179,6 +180,7 @@ export class StudioService {
         currentFeedbackId: input.feedbackId,
         view: input.view,
         topic: input.topic,
+        direction: input.direction,
       }),
     };
   }

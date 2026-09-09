@@ -36,13 +36,11 @@
   --type-body-sm: 0.9375rem;
   --type-caption: 0.875rem;
   --type-button: 1rem;
-  --type-live-label: clamp(3rem, 5.5vw, 6rem);
-  --type-live-name: clamp(2.5rem, 4.8vw, 5rem);
+  --type-live-name: clamp(1.875rem, 3.6vw, 3.75rem);
   --type-live-message: clamp(2rem, 3.8vw, 4.25rem);
   --type-live-message-media: clamp(1.5rem, 2.8vw, 3rem);
-  --type-live-name-mobile: clamp(1.75rem, 8vw, 2.75rem);
+  --type-live-name-mobile: clamp(1.5rem, 7vw, 2.5rem);
   --type-live-message-mobile: clamp(1.5rem, 7vw, 2.25rem);
-  --type-live-label-mobile: 2.5rem;
 
   /* Livestream-only tactical dossier: gunmetal, brass and signal coral. */
   --live-bg: #0e171c;
@@ -55,8 +53,6 @@
   --live-edge: #34444b;
   --live-recess: #101c22;
   --live-emblem: #512f36;
-  --live-emblem-overlay: rgb(81 47 54 / 0.45);
-  --font-live-display: "Songti SC", "Noto Serif SC", "STSong", serif;
   --shadow-live-panel: 0 1.5rem 4rem #0e171c;
   --motion-live-enter: 480ms;
   --motion-live-panel: 520ms;

@@ -164,8 +164,9 @@ export function getNextStudioFeedback(
   feedbackId: string,
   view: "unreplied" | "todo",
   topic?: Topic | null,
+  direction: "previous" | "next" = "next",
 ): Promise<StudioNextFeedbackSuccess> {
-  const query = new URLSearchParams({ view });
+  const query = new URLSearchParams({ view, direction });
   if (topic) query.set("topic", topic);
   return request(
     `/api/studio/feedbacks/${encodeURIComponent(feedbackId)}/next?${query}`,

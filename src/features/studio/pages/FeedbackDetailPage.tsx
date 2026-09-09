@@ -9,7 +9,7 @@ import {
   ShieldWarning,
   UserCircle,
 } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { Button } from "../../../components/Button";
 import { createRandomUuid } from "../../../lib/random-id";
@@ -70,7 +70,9 @@ export function FeedbackDetailPage() {
   const [moderationNotice, setModerationNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [moderationBusy, setModerationBusy] = useState(false);
-  const [nextBusy, setNextBusy] = useState(false);
+  const [navigationDirection, setNavigationDirection] = useState<"previous" | "next" | null>(null);
+  const navigationBusy = navigationDirection !== null;
+  const [atStart, setAtStart] = useState(false);
   const [atEnd, setAtEnd] = useState(false);
   const [liveNotice, setLiveNotice] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -86,6 +88,7 @@ export function FeedbackDetailPage() {
       currentFeedbackRef.current = feedbackId;
       replyAttemptRef.current = null;
       setReplyPending(false);
+      setAtStart(false);
       setAtEnd(false);
       setLiveNotice(null);
       setModerationNotice(null);
@@ -266,11 +269,11 @@ export function FeedbackDetailPage() {
     }
   };
 
-  const goNext = async () => {
+  const goAdjacent = useCallback(async (direction: "previous" | "next") => {
     if (!item || actionRef.current) return;
-    if (atEnd) return;
+    if ((direction === "previous" && atStart) || (direction === "next" && atEnd)) return;
     actionRef.current = true;
-    setNextBusy(true);
+    setNavigationDirection(direction);
     setReplyError(null);
     setLiveNotice(null);
     try {
@@ -280,27 +283,46 @@ export function FeedbackDetailPage() {
       const topic = topicValue && TOPIC_VALUES.includes(topicValue as Topic)
         ? topicValue as Topic
         : null;
-      const next = await getNextStudioFeedback(item.id, view, topic);
+      const adjacent = await getNextStudioFeedback(item.id, view, topic, direction);
       if (currentFeedbackRef.current !== item.id) return;
-      if (!next.nextFeedbackId) {
-        setAtEnd(true);
-        setLiveNotice("已经是最后一页了");
+      if (!adjacent.nextFeedbackId) {
+        if (direction === "previous") setAtStart(true);
+        else setAtEnd(true);
+        setLiveNotice(direction === "previous" ? "已经是第一条留言了" : "已经是最后一条留言了");
         return;
       }
       const nextQuery = new URLSearchParams({ mode: "live", view });
       if (topic) nextQuery.set("topic", topic);
-      navigate(`/studio/feedback/${encodeURIComponent(next.nextFeedbackId)}?${nextQuery}`, {
+      navigate(`/studio/feedback/${encodeURIComponent(adjacent.nextFeedbackId)}?${nextQuery}`, {
         replace: true,
         state: { returnContext },
       });
       window.scrollTo({ top: 0, behavior: "instant" });
     } catch (reason) {
-      setReplyError(reason instanceof Error ? reason.message : "下一条留言暂时无法加载");
+      setReplyError(reason instanceof Error ? reason.message : `${direction === "previous" ? "上一" : "下一"}条留言暂时无法加载`);
     } finally {
       actionRef.current = false;
-      setNextBusy(false);
+      setNavigationDirection(null);
     }
-  };
+  }, [atEnd, atStart, item, location.search, navigate, returnContext]);
+
+  useEffect(() => {
+    if (!liveMode || lightboxIndex !== null) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (
+        target.isContentEditable
+        || target.matches("input, textarea, select")
+        || target.closest("dialog[open]")
+      )) return;
+      event.preventDefault();
+      void goAdjacent(event.key === "ArrowLeft" ? "previous" : "next");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [goAdjacent, lightboxIndex, liveMode]);
 
   const requestSubmit = () => {
     if (liveMode) return;
@@ -323,43 +345,58 @@ export function FeedbackDetailPage() {
     return (
       <div className="studio-live-page">
         <section key={item.id} className="studio-live-stage" aria-label="直播留言展示">
-          <aside className="studio-live-identity" aria-labelledby="studio-live-friend-name">
-            <div className="studio-live-signal-mark" aria-hidden="true"><i /><i /><i /></div>
-            <div className="studio-live-friend">
-              <span>鹏友</span>
-              <h1 id="studio-live-friend-name">{item.nickname}</h1>
-            </div>
-            <div className="studio-live-next-wrap">
-              {replyError && <span className="studio-live-error" role="alert">{replyError}</span>}
-              {liveNotice && <span role="status">{liveNotice}</span>}
+          <div className="studio-live-frame">
+            <header className="studio-live-identity">
+              <div className="studio-live-signal-mark" aria-hidden="true"><i /><i /><i /></div>
+              <h1>{item.nickname}</h1>
+            </header>
+
+            <article className={`studio-live-message${images.length > 0 ? " studio-live-message--with-images" : ""}`} aria-label="留言内容">
+              <div className="studio-live-message-scroll">
+                <p>{item.content}</p>
+                {images.length > 0 && (
+                  <div className={`studio-live-images studio-live-images--${images.length}`}>
+                    {images.map((image, index) => (
+                      <button key={image.id} type="button" onClick={() => setLightboxIndex(index)} aria-label={`放大留言图片 ${index + 1}`}>
+                        <img src={image.src} alt={image.alt} width={image.width} height={image.height} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </article>
+
+            <nav className="studio-live-navigation" aria-label="留言切换">
+              <div className="studio-live-navigation-status" aria-live="polite">
+                {replyError && <span className="studio-live-error" role="alert">{replyError}</span>}
+                {liveNotice && <span role="status">{liveNotice}</span>}
+              </div>
               <Button
                 type="button"
-                className="studio-live-next"
-                loading={nextBusy}
-                loadingLabel="正在打开下一页"
-                disabled={atEnd}
-                icon={<ArrowRight aria-hidden="true" weight="bold" />}
-                onClick={() => void goNext()}
+                className="studio-live-nav-button studio-live-previous"
+                loading={navigationDirection === "previous"}
+                loadingLabel="正在打开上一条"
+                disabled={atStart || navigationBusy}
+                icon={<ArrowLeft aria-hidden="true" weight="bold" />}
+                aria-keyshortcuts="ArrowLeft"
+                onClick={() => void goAdjacent("previous")}
               >
-                {atEnd ? "已到最后一页" : "下一页"}
+                {atStart ? "已到第一条" : "上一条"}
               </Button>
-            </div>
-          </aside>
-
-          <article className={`studio-live-message${images.length > 0 ? " studio-live-message--with-images" : ""}`} aria-label="留言内容">
-            <div className="studio-live-message-scroll">
-              <p>{item.content}</p>
-              {images.length > 0 && (
-                <div className={`studio-live-images studio-live-images--${images.length}`}>
-                  {images.map((image, index) => (
-                    <button key={image.id} type="button" onClick={() => setLightboxIndex(index)} aria-label={`放大留言图片 ${index + 1}`}>
-                      <img src={image.src} alt={image.alt} width={image.width} height={image.height} />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </article>
+              <Button
+                type="button"
+                className="studio-live-nav-button studio-live-next"
+                loading={navigationDirection === "next"}
+                loadingLabel="正在打开下一条"
+                disabled={atEnd || navigationBusy}
+                icon={<ArrowRight aria-hidden="true" weight="bold" />}
+                aria-keyshortcuts="ArrowRight"
+                onClick={() => void goAdjacent("next")}
+              >
+                {atEnd ? "已到最后一条" : "下一条"}
+              </Button>
+            </nav>
+          </div>
         </section>
 
         {lightboxIndex !== null && <Lightbox images={images} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />}
@@ -453,14 +490,14 @@ export function FeedbackDetailPage() {
               {moderationNotice && <small role="status">{moderationNotice}</small>}
             </div>
             {item.replyCount === 0 && (item.moderationStatus === "failed" || item.moderationStatus === "pending") && (
-              <Button type="button" variant="secondary" disabled={moderationBusy || submitting || nextBusy} onClick={() => void retryModeration()}>重新 AI 筛选</Button>
+              <Button type="button" variant="secondary" disabled={moderationBusy || submitting || navigationBusy} onClick={() => void retryModeration()}>重新 AI 筛选</Button>
             )}
             <Button
               type="button"
               variant="secondary"
               loading={moderationBusy}
               loadingLabel="正在更新"
-              disabled={submitting || nextBusy}
+              disabled={submitting || navigationBusy}
               icon={<ShieldWarning aria-hidden="true" />}
               onClick={() => void setFiltered(item.moderationStatus !== "filtered")}
             >
@@ -490,7 +527,7 @@ export function FeedbackDetailPage() {
 
       <section className="studio-reply-composer" aria-labelledby="studio-compose-title">
         <div className="studio-section-title"><h2 id="studio-compose-title">追加回复</h2><small>{replyContent.length} / 2000</small></div>
-        <fieldset className="studio-reply-types" disabled={submitting || nextBusy || replyPending}>
+        <fieldset className="studio-reply-types" disabled={submitting || navigationBusy || replyPending}>
           <legend>回复方式</legend>
           {(["live", "message"] as const).map((type) => (
             <label key={type}>
@@ -506,7 +543,7 @@ export function FeedbackDetailPage() {
           value={replyContent}
           maxLength={2000}
           rows={7}
-          disabled={submitting || nextBusy || replyPending}
+          disabled={submitting || navigationBusy || replyPending}
           placeholder="填写要追加的回复内容"
           aria-invalid={Boolean(replyError)}
           aria-describedby={replyError ? "studio-reply-error" : undefined}
@@ -516,7 +553,7 @@ export function FeedbackDetailPage() {
           }}
         />
         {replyError && <p id="studio-reply-error" className="studio-field-error" role="alert">{replyError}</p>}
-        {replyPending && !submitting && !nextBusy && <p role="status">尚未确认回复是否保存，请重试提交。确认前会保留原回复内容。</p>}
+        {replyPending && !submitting && !navigationBusy && <p role="status">尚未确认回复是否保存，请重试提交。确认前会保留原回复内容。</p>}
         <div className="studio-detail-actions">
           <Button type="button" variant="quiet" icon={<ArrowLeft aria-hidden="true" />} onClick={goBack}>返回</Button>
           <Button type="button" loading={submitting} loadingLabel="正在提交" icon={<PaperPlaneTilt aria-hidden="true" weight="fill" />} onClick={requestSubmit}>提交</Button>

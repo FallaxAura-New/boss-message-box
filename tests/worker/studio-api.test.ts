@@ -204,6 +204,10 @@ describe("Studio API", () => {
       isTodo: false,
     });
 
+    expect((await api(`/api/studio/feedbacks/${seeded.feedbackId}/next?view=unreplied&direction=previous`, {
+      headers: authenticated,
+    })).status).toBe(403);
+
     const mode = await api("/api/studio/session/mode", {
       method: "PUT",
       headers: authenticated,
@@ -215,6 +219,14 @@ describe("Studio API", () => {
     const liveDetailText = await liveDetail.text();
     expect(JSON.parse(liveDetailText).item.shopPhone).toBeNull();
     expect(liveDetailText).not.toContain("+853 6612-3456");
+    const previous = await api(`/api/studio/feedbacks/${seeded.feedbackId}/next?view=unreplied&direction=previous`, {
+      headers: authenticated,
+    });
+    expect(previous.status).toBe(200);
+    expect(await previous.json()).toEqual({ ok: true, nextFeedbackId: null });
+    expect((await api(`/api/studio/feedbacks/${seeded.feedbackId}/next?view=unreplied&direction=sideways`, {
+      headers: authenticated,
+    })).status).toBe(400);
 
     const forbiddenReveal = await api(`/api/studio/users/${seeded.userId}/reveal-phone`, {
       method: "POST",

@@ -561,6 +561,7 @@ export class D1StudioRepository implements StudioRepository {
     currentFeedbackId: string;
     view: "unreplied" | "todo";
     topic: Topic | null;
+    direction?: "previous" | "next";
   }): Promise<string | null> {
     const current = await this.db
       .prepare("SELECT created_at, id FROM feedback WHERE id = ? LIMIT 1")
@@ -569,13 +570,18 @@ export class D1StudioRepository implements StudioRepository {
     if (!current) return null;
     const filter = viewFilter(input.view);
     const topicFilter = input.topic ? " AND f.topic = ?" : "";
+    const previous = input.direction === "previous";
+    const cursorFilter = previous
+      ? "(f.created_at > ? OR (f.created_at = ? AND f.id > ?))"
+      : "(f.created_at < ? OR (f.created_at = ? AND f.id < ?))";
+    const order = previous ? "ASC" : "DESC";
     const row = await this.db
       .prepare(
         `SELECT f.id FROM feedback f
          WHERE (${filter})${topicFilter}
            AND f.moderation_status IN ('kept', 'failed')
-           AND (f.created_at < ? OR (f.created_at = ? AND f.id < ?))
-         ORDER BY f.created_at DESC, f.id DESC
+           AND ${cursorFilter}
+         ORDER BY f.created_at ${order}, f.id ${order}
          LIMIT 1`,
       )
       .bind(

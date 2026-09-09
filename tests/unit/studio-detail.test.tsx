@@ -133,7 +133,8 @@ describe("Studio reply interaction", () => {
     const user = userEvent.setup();
     renderDetail(true);
     await screen.findByRole("heading", { name: "测试昵称" });
-    expect(screen.getByText("鹏友")).toBeInTheDocument();
+    expect(screen.queryByText("鹏友")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "测试昵称" }).closest("header")).toHaveClass("studio-live-identity");
     expect(screen.getByRole("article", { name: "留言内容" })).toHaveTextContent("完整留言");
     for (const hidden of ["申冤", "未回复", "#22222222", "手机号", "1**********", "张导小店绑定手机号", "+853 6612-3456", "提交时间", "历史回复", "不应出现在直播画面的历史回复", "直播回复", "追加回复"]) {
       expect(screen.queryByText(hidden)).not.toBeInTheDocument();
@@ -142,6 +143,8 @@ describe("Studio reply interaction", () => {
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "放大留言图片 1" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{ArrowRight}");
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/next?"))).toHaveLength(0);
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });
 
@@ -159,21 +162,22 @@ describe("Studio reply interaction", () => {
     const user = userEvent.setup();
     renderDetail(true);
     await screen.findByRole("heading", { name: "测试昵称" });
-    await user.click(screen.getByRole("button", { name: "下一页" }));
+    await user.click(screen.getByRole("button", { name: "下一条" }));
     await screen.findByRole("alert");
-    await user.click(screen.getByRole("button", { name: "下一页" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "已到最后一页" })).toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "下一条" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "已到最后一条" })).toBeDisabled());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });
 
-  it("advances to the next message while retaining the live sequence and topic", async () => {
+  it("switches with left and right arrow keys while retaining the live sequence and topic", async () => {
     const nextId = "44444444-4444-4444-8444-444444444444";
     const fetchMock = mockDetailApi();
     const original = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (input, init) => {
       const url = String(input);
-      if (url.includes("/next?")) return Response.json({ ok: true, nextFeedbackId: nextId });
+      if (url.includes("/next?") && url.includes("direction=next")) return Response.json({ ok: true, nextFeedbackId: nextId });
+      if (url.includes("/next?") && url.includes("direction=previous")) return Response.json({ ok: true, nextFeedbackId: feedbackId });
       if (url.endsWith(nextId)) return Response.json({ ...detail, item: { ...detail.item, id: nextId, nickname: "下一位鹏友" } });
       return original(input, init);
     });
@@ -187,12 +191,17 @@ describe("Studio reply interaction", () => {
       </MemoryRouter>,
     );
     await screen.findByRole("heading", { name: "测试昵称" });
-    await user.click(screen.getByRole("button", { name: "下一页" }));
+    await user.keyboard("{ArrowRight}");
     await screen.findByRole("heading", { name: "下一位鹏友" });
-    await user.click(screen.getByRole("button", { name: "下一页" }));
+    await user.keyboard("{ArrowLeft}");
+    await screen.findByRole("heading", { name: "测试昵称" });
     await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/next?"))).toHaveLength(2));
-    for (const [input] of fetchMock.mock.calls.filter(([input]) => String(input).includes("/next?"))) {
-      expect(String(input)).toContain("view=todo&topic=appeal");
+    const navigationCalls = fetchMock.mock.calls.filter(([input]) => String(input).includes("/next?"));
+    expect(String(navigationCalls[0]?.[0])).toContain("direction=next");
+    expect(String(navigationCalls[1]?.[0])).toContain("direction=previous");
+    for (const [input] of navigationCalls) {
+      expect(String(input)).toContain("view=todo");
+      expect(String(input)).toContain("topic=appeal");
     }
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });

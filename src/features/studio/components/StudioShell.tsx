@@ -253,7 +253,7 @@ export function StudioShell() {
           {liveEntryAvailable && (
             <button type="button" className="studio-live-toggle" disabled={modeBusy} onClick={() => void enterLiveMode()}>
               <Broadcast aria-hidden="true" weight="bold" />
-              <span><strong>直播展示模式</strong><small>聚焦鹏友留言与图片</small></span>
+              <span><strong>直播展示模式</strong><small>聚焦观众留言与图片</small></span>
             </button>
           )}
           <div className="studio-admin-row">
