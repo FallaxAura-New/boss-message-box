@@ -75,8 +75,6 @@ function contrast(foreground, background) {
 const checks = [
   ["直播昵称 / 标题条", "liveBrass", "liveIdentity", 4.5],
   ["直播主题 / 标题条", "liveMuted", "liveIdentity", 4.5],
-  ["直播上一条 / 面板", "liveBrass", "livePanel", 4.5],
-  ["直播按钮 / 珊瑚红", "liveBg", "liveCoral", 4.5],
   ["直播辅助文字 / 面板", "liveMuted", "livePanel", 4.5],
   ["直播错误 / 面板", "danger", "livePanel", 4.5],
   ["直播正文 / 留言表面", "livePaper", "livePanel", 4.5],

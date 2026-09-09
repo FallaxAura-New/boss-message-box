@@ -1,6 +1,5 @@
 import {
   ArrowLeft,
-  ArrowRight,
   ChatCircleText,
   Clock,
   Eye,
@@ -275,7 +274,7 @@ export function FeedbackDetailPage() {
     actionRef.current = true;
     setNavigationDirection(direction);
     setReplyError(null);
-    setLiveNotice(null);
+    setLiveNotice(direction === "previous" ? "正在切换到上一条留言…" : "正在切换到下一条留言…");
     try {
       const query = new URLSearchParams(location.search);
       const view = query.get("view") === "todo" ? "todo" : "unreplied";
@@ -299,6 +298,7 @@ export function FeedbackDetailPage() {
       });
       window.scrollTo({ top: 0, behavior: "instant" });
     } catch (reason) {
+      setLiveNotice(null);
       setReplyError(reason instanceof Error ? reason.message : `${direction === "previous" ? "上一" : "下一"}条留言暂时无法加载`);
     } finally {
       actionRef.current = false;
@@ -342,9 +342,19 @@ export function FeedbackDetailPage() {
   const currentDetailUrl = `${location.pathname}${location.search}`;
 
   if (liveMode) {
+    const contentDensity = item.content.length > 900
+      ? "compact"
+      : item.content.length > 400 ? "dense" : "standard";
     return (
       <div className="studio-live-page">
-        <section key={item.id} className="studio-live-stage" aria-label="直播留言展示">
+        <section
+          key={item.id}
+          className="studio-live-stage"
+          aria-label="直播留言展示"
+          aria-describedby="studio-live-keyboard-help"
+          aria-keyshortcuts="ArrowLeft ArrowRight"
+        >
+          <p id="studio-live-keyboard-help" className="sr-only">使用键盘左方向键查看上一条留言，右方向键查看下一条留言。</p>
           <div className="studio-live-frame">
             <header className="studio-live-identity">
               <div className="studio-live-signal-mark" aria-hidden="true"><i /><i /><i /></div>
@@ -354,51 +364,27 @@ export function FeedbackDetailPage() {
               </div>
             </header>
 
-            <article className={`studio-live-message${images.length > 0 ? " studio-live-message--with-images" : ""}`} aria-label="留言内容">
-              <div className="studio-live-message-scroll">
-                <p>{item.content}</p>
+            <article className={`studio-live-message studio-live-message--${contentDensity}${images.length > 0 ? " studio-live-message--with-images" : ""}`} aria-label="留言内容">
+              <div className="studio-live-message-layout">
+                <div className="studio-live-message-text" role="region" aria-label="完整留言正文" tabIndex={0}>
+                  <p>{item.content}</p>
+                </div>
                 {images.length > 0 && (
-                  <div className={`studio-live-images studio-live-images--${images.length}`}>
+                  <aside className={`studio-live-images studio-live-images--${images.length}`} aria-label="留言图片缩略图">
                     {images.map((image, index) => (
                       <button key={image.id} type="button" onClick={() => setLightboxIndex(index)} aria-label={`放大留言图片 ${index + 1}`}>
                         <img src={image.src} alt={image.alt} width={image.width} height={image.height} />
                       </button>
                     ))}
-                  </div>
+                  </aside>
                 )}
               </div>
             </article>
 
-            <nav className="studio-live-navigation" aria-label="留言切换">
-              <div className="studio-live-navigation-status" aria-live="polite">
-                {replyError && <span className="studio-live-error" role="alert">{replyError}</span>}
-                {liveNotice && <span role="status">{liveNotice}</span>}
-              </div>
-              <Button
-                type="button"
-                className="studio-live-nav-button studio-live-previous"
-                loading={navigationDirection === "previous"}
-                loadingLabel="正在打开上一条"
-                disabled={atStart || navigationBusy}
-                icon={<ArrowLeft aria-hidden="true" weight="bold" />}
-                aria-keyshortcuts="ArrowLeft"
-                onClick={() => void goAdjacent("previous")}
-              >
-                {atStart ? "已到第一条" : "上一条"}
-              </Button>
-              <Button
-                type="button"
-                className="studio-live-nav-button studio-live-next"
-                loading={navigationDirection === "next"}
-                loadingLabel="正在打开下一条"
-                disabled={atEnd || navigationBusy}
-                icon={<ArrowRight aria-hidden="true" weight="bold" />}
-                aria-keyshortcuts="ArrowRight"
-                onClick={() => void goAdjacent("next")}
-              >
-                {atEnd ? "已到最后一条" : "下一条"}
-              </Button>
-            </nav>
+            <div className="studio-live-navigation-status" aria-live="polite" aria-atomic="true">
+              {replyError && <span className="studio-live-error" role="alert">{replyError}</span>}
+              {liveNotice && <span role="status">{liveNotice}</span>}
+            </div>
           </div>
         </section>
 

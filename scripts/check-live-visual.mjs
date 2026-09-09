@@ -2,6 +2,7 @@ import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
 
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" });
+const baseUrl = process.env.VISUAL_BASE_URL ?? "http://127.0.0.1:5173";
 const id = "11111111-1111-4111-8111-111111111111";
 const nextId = "22222222-2222-4222-8222-222222222222";
 try {
@@ -43,7 +44,7 @@ try {
       if (detailId) return route.fulfill({ json: { ok: true, item: item(detailId) } });
       return route.fulfill({ status: 404, json: { ok: false } });
     });
-    await page.goto("http://127.0.0.1:5173/studio/unreplied");
+    await page.goto(`${baseUrl}/studio/unreplied`);
     await page.locator(".studio-feedback-card").waitFor();
     if (viewport.width < 1024) await page.locator(".studio-mobile-menu > summary").click();
     await page.locator(".studio-live-toggle:visible").click();
@@ -55,26 +56,15 @@ try {
     assert.equal(await page.getByText("鹏友", { exact: true }).count(), 0, "obsolete live label is still visible");
     assert.equal(await page.getByText("已发布硬件", { exact: true }).count(), 1, "topic is missing below the nickname");
     assert.equal(await page.getByText("主题", { exact: true }).count(), 0, "topic label should stay hidden");
-    for (const name of ["上一条", "下一条", "退出直播模式"]) {
-      const box = await page.getByRole("button", { name, exact: true }).boundingBox();
-      if (!box || box.y < 0 || box.y + box.height > viewport.height) {
-        console.log({ name, box, viewport }, await page.evaluate(() => ({ scrollY, stage: document.querySelector('.studio-live-stage').getBoundingClientRect().toJSON(), identity: document.querySelector('.studio-live-identity').getBoundingClientRect().toJSON() })));
-        await page.screenshot({ path: `/private/tmp/boss-live-${viewport.width}.png` });
-      }
-      assert(box && box.y >= 0 && box.y + box.height <= viewport.height, `${name} clipped`);
-    }
+    assert.equal(await page.getByRole("button", { name: "上一条", exact: true }).count(), 0, "previous button is still visible");
+    assert.equal(await page.getByRole("button", { name: "下一条", exact: true }).count(), 0, "next button is still visible");
+    const exitBox = await page.getByRole("button", { name: "退出直播模式", exact: true }).boundingBox();
+    assert(exitBox && exitBox.y >= 0 && exitBox.y + exitBox.height <= viewport.height, "exit action clipped");
+    const textBox = await page.locator(".studio-live-message-text").boundingBox();
+    const thumbnailBox = await page.locator(".studio-live-images").boundingBox();
+    assert(textBox && thumbnailBox && textBox.x + textBox.width <= thumbnailBox.x + 1, "image thumbnails are not to the right of the message");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-    if (viewport.width === 1280) {
-      const next = page.getByRole("button", { name: "下一条", exact: true });
-      await next.hover();
-      assert.match(await next.evaluate(el => getComputedStyle(el).boxShadow), /255, 101, 112/, "live hover must not inherit admin cyan glow");
-      await page.keyboard.press("Tab");
-      await next.focus();
-      assert.notEqual(await next.evaluate(el => getComputedStyle(el).outlineStyle), "none", "keyboard focus missing");
-      await next.evaluate(el => el.blur());
-    }
     await page.mouse.move(0, 0);
-    await page.getByRole("button", { name: "下一条", exact: true }).evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
     await page.screenshot({ path: `/private/tmp/boss-live-${viewport.width}.png` });
 
     await page.keyboard.press("ArrowRight");
@@ -88,8 +78,8 @@ try {
     // Keying changes only the canvas, never foreground styles or uploaded media.
     const foreground = () => page.evaluate(() => [
       ['.studio-live-identity', 'backgroundColor'], ['.studio-live-identity h1', 'color'],
-      ['.studio-live-message', 'backgroundImage'], ['.studio-live-message-scroll > p', 'color'],
-      ['.studio-live-images button', 'backgroundColor'], ['.studio-live-next', 'backgroundColor'],
+      ['.studio-live-message', 'backgroundImage'], ['.studio-live-message-text > p', 'color'],
+      ['.studio-live-images button', 'backgroundColor'],
     ].map(([selector, property]) => getComputedStyle(document.querySelector(selector))[property]));
     const originalForeground = await foreground();
     await page.getByRole('button', { name: '抠像底色', exact: true }).click();
@@ -136,19 +126,19 @@ try {
     await page.reload();
     await page.getByRole("heading", { name: item().nickname }).waitFor();
     await page.locator('.studio-live-stage').evaluate(el => Promise.all(el.getAnimations({ subtree: true }).map(animation => animation.finished)));
-    const scroll = page.locator(".studio-live-message-scroll");
+    const scroll = page.locator(".studio-live-message-text");
     assert(await scroll.evaluate(el => el.querySelector("p").getBoundingClientRect().top >= el.getBoundingClientRect().top), "long message start inaccessible");
     await scroll.evaluate(el => { el.scrollTop = el.scrollHeight; });
+    assert(await scroll.evaluate(el => el.querySelector("p").getBoundingClientRect().bottom <= el.getBoundingClientRect().bottom + 1), "long message end inaccessible");
     const imageBox = await page.getByRole("button", { name: "放大留言图片 1" }).boundingBox();
-    assert(imageBox && imageBox.y < viewport.height && imageBox.y + imageBox.height <= viewport.height + 1, "long message end inaccessible");
-    await page.getByRole("button", { name: "下一条", exact: true }).click();
-    await page.getByRole("button", { name: "已到最后一条" }).waitFor();
-    assert(await page.getByRole("button", { name: "已到最后一条" }).isDisabled());
+    assert(imageBox && imageBox.y < viewport.height && imageBox.y + imageBox.height <= viewport.height + 1, "thumbnail became inaccessible while reading long text");
+    await page.keyboard.press("ArrowRight");
+    await page.getByRole("status").filter({ hasText: "已经是最后一条留言了" }).waitFor();
     await page.getByRole("button", { name: "退出直播模式" }).click();
     await page.getByRole("heading", { name: "未回复留言" }).waitFor();
     assert(writes.every(path => path.endsWith("/session/mode")), "unexpected write");
     assert.deepEqual(errors, []);
-    console.log(`PASS live ${viewport.width}×${viewport.height}: stacked layout, content isolation, arrow-key previous/next, chroma + persistence + reset, media, long-content scrolling, exit`);
+    console.log(`PASS live ${viewport.width}×${viewport.height}: keyboard-only navigation, responsive text-left/media-right layout, chroma isolation, long-content access, lightbox, exit`);
     await context.close();
   }
 } finally { await browser.close(); }

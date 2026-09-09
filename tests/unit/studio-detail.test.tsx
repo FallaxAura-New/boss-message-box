@@ -143,6 +143,8 @@ describe("Studio reply interaction", () => {
     }
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "上一条" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "下一条" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "放大留言图片 1" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     await user.keyboard("{ArrowRight}");
@@ -150,7 +152,7 @@ describe("Studio reply interaction", () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });
 
-  it("retries a failed next-page request and disables advancing at the end without writing replies", async () => {
+  it("retries a failed next-page request and announces the end without writing replies", async () => {
     const fetchMock = mockDetailApi();
     const original = fetchMock.getMockImplementation()!;
     let failNext = true;
@@ -164,11 +166,12 @@ describe("Studio reply interaction", () => {
     const user = userEvent.setup();
     renderDetail(true);
     await screen.findByRole("heading", { name: "测试昵称" });
-    await user.click(screen.getByRole("button", { name: "下一条" }));
+    await user.keyboard("{ArrowRight}");
     await screen.findByRole("alert");
-    await user.click(screen.getByRole("button", { name: "下一条" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "已到最后一条" })).toBeDisabled());
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已经是最后一条留言了"));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "下一条" })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });
 
