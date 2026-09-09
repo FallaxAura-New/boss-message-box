@@ -109,94 +109,83 @@ describe("Studio reply interaction", () => {
     await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
   });
 
-  it("saves a nonempty live reply before advancing", async () => {
+  it("shows only identity, message and images in live mode, even when replies exist", async () => {
     const fetchMock = mockDetailApi();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith(feedbackId)) {
+        return Response.json({ ...detail, item: {
+          ...detail.item,
+          replies: [{ id: "reply", replyType: "live", content: "不应出现在直播画面的历史回复", createdAt: 1000, adminUsername: "zd" }],
+          images: [{ id: "image", viewUrl: "/fixture.webp", downloadUrl: "/fixture.webp", width: 800, height: 600 }],
+        } });
+      }
+      return original(input, init);
+    });
     const user = userEvent.setup();
     renderDetail(true);
-    await screen.findByRole("heading", { name: "申冤" });
+    await screen.findByRole("heading", { name: "测试昵称" });
+    expect(screen.getByText("鹏友")).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "留言内容" })).toHaveTextContent("完整留言");
+    for (const hidden of ["申冤", "未回复", "#22222222", "手机号", "1**********", "提交时间", "历史回复", "不应出现在直播画面的历史回复", "直播回复", "追加回复"]) {
+      expect(screen.queryByText(hidden)).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
-    await user.type(screen.getByRole("textbox", { name: "回复内容" }), "直播回复内容");
-    await user.click(screen.getByRole("button", { name: "下一条" }));
-
-    await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
-    expect(JSON.parse(String(post?.[1]?.body))).toEqual({ content: "直播回复内容", requestKey: expect.stringMatching(/^[0-9a-f-]{36}$/) });
-  });
-
-  it("advances without creating a reply when the live reply is empty", async () => {
-    const fetchMock = mockDetailApi();
-    const user = userEvent.setup();
-    renderDetail(true);
-    await screen.findByRole("heading", { name: "申冤" });
-    await user.click(screen.getByRole("button", { name: "下一条" }));
-
-    await waitFor(() => expect(screen.getByRole("button", { name: "已经是最后一条" })).toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "放大留言图片 1" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });
 
-  it("still saves a reply entered after reaching the final live message", async () => {
-    const fetchMock = mockDetailApi();
-    const user = userEvent.setup();
-    renderDetail(true);
-    await screen.findByRole("heading", { name: "申冤" });
-    await user.click(screen.getByRole("button", { name: "下一条" }));
-    await screen.findByRole("button", { name: "已经是最后一条" });
-    await user.type(screen.getByRole("textbox", { name: "回复内容" }), "最后一条也需要回复");
-    await user.click(screen.getByRole("button", { name: "保存回复" }));
-
-    await screen.findByText("回复已保存，已经是最后一条了");
-    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
-    expect(screen.getByText("最后一条也需要回复")).toBeInTheDocument();
-  });
-
-  it("retries an uncertain reply with the same request key and locked content", async () => {
+  it("retries a failed next-page request and disables advancing at the end without writing replies", async () => {
     const fetchMock = mockDetailApi();
     const original = fetchMock.getMockImplementation()!;
-    let shouldFail = true;
+    let failNext = true;
     fetchMock.mockImplementation(async (input, init) => {
-      if (init?.method === "POST" && shouldFail) {
-        shouldFail = false;
+      if (String(input).includes("/next?") && failNext) {
+        failNext = false;
         throw new TypeError("Failed to fetch");
       }
       return original(input, init);
     });
     const user = userEvent.setup();
     renderDetail(true);
-    await screen.findByRole("heading", { name: "申冤" });
-    const input = screen.getByRole("textbox", { name: "回复内容" });
-    await user.type(input, "只保存一次");
-    await user.click(screen.getByRole("button", { name: "下一条" }));
+    await screen.findByRole("heading", { name: "测试昵称" });
+    await user.click(screen.getByRole("button", { name: "下一页" }));
     await screen.findByRole("alert");
-    expect(input).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "下一条" }));
-    await screen.findByRole("button", { name: "已经是最后一条" });
-    const posts = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
-    expect(posts).toHaveLength(2);
-    expect(posts[0]?.[1]?.body).toEqual(posts[1]?.[1]?.body);
-    expect(input).not.toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "已到最后一页" })).toBeDisabled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });
 
-  it("does not repeat a confirmed reply when loading the next message fails", async () => {
+  it("advances to the next message while retaining the live sequence and topic", async () => {
+    const nextId = "44444444-4444-4444-8444-444444444444";
     const fetchMock = mockDetailApi();
     const original = fetchMock.getMockImplementation()!;
-    let shouldFail = true;
     fetchMock.mockImplementation(async (input, init) => {
-      if (String(input).includes("/next?") && shouldFail) {
-        shouldFail = false;
-        throw new TypeError("Failed to fetch");
-      }
+      const url = String(input);
+      if (url.includes("/next?")) return Response.json({ ok: true, nextFeedbackId: nextId });
+      if (url.endsWith(nextId)) return Response.json({ ...detail, item: { ...detail.item, id: nextId, nickname: "下一位鹏友" } });
       return original(input, init);
     });
+    vi.stubGlobal("scrollTo", vi.fn());
     const user = userEvent.setup();
-    renderDetail(true);
-    await screen.findByRole("heading", { name: "申冤" });
-    await user.type(screen.getByRole("textbox", { name: "回复内容" }), "已确认保存");
-    await user.click(screen.getByRole("button", { name: "下一条" }));
-    await screen.findByRole("alert");
-    expect(screen.getByRole("textbox", { name: "回复内容" })).toHaveValue("");
-    await user.click(screen.getByRole("button", { name: "下一条" }));
-    await screen.findByRole("button", { name: "已经是最后一条" });
-    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    render(
+      <MemoryRouter initialEntries={[`/studio/feedback/${feedbackId}?mode=live&view=todo&topic=appeal`]}>
+        <Routes><Route element={<Outlet context={{ liveMode: true }} />}>
+          <Route path="/studio/feedback/:feedbackId" element={<FeedbackDetailPage />} />
+        </Route></Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByRole("heading", { name: "测试昵称" });
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    await screen.findByRole("heading", { name: "下一位鹏友" });
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/next?"))).toHaveLength(2));
+    for (const [input] of fetchMock.mock.calls.filter(([input]) => String(input).includes("/next?"))) {
+      expect(String(input)).toContain("view=todo&topic=appeal");
+    }
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });
 });

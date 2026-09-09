@@ -1,0 +1,124 @@
+import { chromium } from "@playwright/test";
+import assert from "node:assert/strict";
+
+const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" });
+const id = "11111111-1111-4111-8111-111111111111";
+try {
+  for (const viewport of [{ width: 375, height: 700 }, { width: 768, height: 800 }, { width: 1280, height: 700 }]) {
+    if (process.argv[2] && viewport.width !== Number(process.argv[2])) continue;
+    const context = await browser.newContext({ viewport, reducedMotion: viewport.width === 1280 ? "no-preference" : "reduce" });
+    const page = await context.newPage();
+    let mode = "normal";
+    let long = false;
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    const writes = [];
+    const image = { id: "image", viewUrl: "/fixture.svg", downloadUrl: "/fixture.svg", width: 800, height: 450 };
+    const item = () => ({ id, feedbackNumber: "11111111", userId: null, nickname: long ? "测试很长的抖音昵称需要完整展示不能被裁切" : "爱折腾的鹏友", topic: "released_hardware", customTopic: null, content: long ? "长留言开始。" + "这是用于验证滚动范围的测试内容。".repeat(100) + "长留言结束。" : "希望下一次直播能聊聊新产品的实际体验。\n这张图是我想分享的小建议。", contentPreview: "测试留言", imageCount: 1, images: [image], maskedPhone: null, createdAt: 1000, status: "unreplied", isTodo: false, replyCount: 1, latestReplyAdmin: "测试管理员", replies: [{ id: "reply", replyType: "live", content: "绝不能出现在直播画面的历史回复", createdAt: 1000 }], moderationStatus: "kept", moderationCategory: "valid_feedback", moderationReason: null });
+    await page.route("**/fixture.svg", route => route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450"><rect width="800" height="450" fill="#152c41"/><circle cx="400" cy="205" r="105" fill="#4edfff"/><text x="400" y="375" text-anchor="middle" fill="#f3f8fd" font-size="30">TEST IMAGE</text></svg>' }));
+    await page.route("**/api/studio/**", route => {
+      const request = route.request();
+      const path = new URL(request.url()).pathname;
+      if (request.method() !== "GET") writes.push(path);
+      if (path.endsWith("/session/mode")) mode = request.postDataJSON().mode;
+      if (path.endsWith("/session") || path.endsWith("/session/mode")) return route.fulfill({ json: { ok: true, admin: { id: "fixture", username: "测试管理员" }, mode, expiresAt: Date.now() + 86400000 } });
+      if (path.endsWith("/stats")) return route.fulfill({ json: { ok: true, todayFeedback: 1, unreplied: 1, todo: 0, todayReplied: 0 } });
+      if (path.endsWith("/new-feedback-count")) return route.fulfill({ json: { ok: true, count: 0 } });
+      if (path.endsWith("/feedbacks")) return route.fulfill({ json: { ok: true, items: [item()], pagination: { page: 1, pageSize: 30, total: 1, totalPages: 1 }, snapshot: { createdAt: 1000, id } } });
+      if (path.endsWith("/next")) return route.fulfill({ json: { ok: true, nextFeedbackId: null } });
+      if (path.endsWith(`/feedbacks/${id}`)) return route.fulfill({ json: { ok: true, item: item() } });
+      return route.fulfill({ status: 404, json: { ok: false } });
+    });
+    await page.goto("http://127.0.0.1:5173/studio/unreplied");
+    await page.locator(".studio-feedback-card").waitFor();
+    if (viewport.width < 1024) await page.locator(".studio-mobile-menu > summary").click();
+    await page.locator(".studio-live-toggle:visible").click();
+    await page.getByRole("heading", { name: "爱折腾的鹏友" }).waitFor({ timeout: 10000 }).catch(async error => { console.log(page.url(), await page.locator("body").innerText(), errors); throw error; });
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.studio-live-stage')).display === 'grid');
+    await page.locator('.studio-live-stage').evaluate(el => Promise.all(el.getAnimations({ subtree: true }).map(animation => animation.finished)));
+    assert.match(page.url(), /feedback\/.*mode=live/);
+    assert.equal(await page.locator(".studio-reply-composer, .studio-reply-history, .studio-detail-heading").count(), 0);
+    for (const name of ["下一页", "退出直播模式"]) {
+      const box = await page.getByRole("button", { name, exact: true }).boundingBox();
+      if (!box || box.y < 0 || box.y + box.height > viewport.height) {
+        console.log({ name, box, viewport }, await page.evaluate(() => ({ scrollY, stage: document.querySelector('.studio-live-stage').getBoundingClientRect().toJSON(), identity: document.querySelector('.studio-live-identity').getBoundingClientRect().toJSON() })));
+        await page.screenshot({ path: `/private/tmp/boss-live-${viewport.width}.png` });
+      }
+      assert(box && box.y >= 0 && box.y + box.height <= viewport.height, `${name} clipped`);
+    }
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    if (viewport.width === 1280) {
+      const next = page.getByRole("button", { name: "下一页", exact: true });
+      await next.hover();
+      assert.match(await next.evaluate(el => getComputedStyle(el).boxShadow), /255, 101, 112/, "live hover must not inherit admin cyan glow");
+      await page.keyboard.press("Tab");
+      await next.focus();
+      assert.notEqual(await next.evaluate(el => getComputedStyle(el).outlineStyle), "none", "keyboard focus missing");
+      await next.evaluate(el => el.blur());
+    }
+    await page.mouse.move(0, 0);
+    await page.getByRole("button", { name: "下一页", exact: true }).evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
+    await page.screenshot({ path: `/private/tmp/boss-live-${viewport.width}.png` });
+
+    // Keying changes only the canvas, never foreground styles or uploaded media.
+    const foreground = () => page.evaluate(() => [
+      ['.studio-live-friend > span', 'color'], ['.studio-live-friend h1', 'color'],
+      ['.studio-live-message', 'backgroundImage'], ['.studio-live-message-scroll > p', 'color'],
+      ['.studio-live-images button', 'backgroundColor'], ['.studio-live-next', 'backgroundColor'],
+    ].map(([selector, property]) => getComputedStyle(document.querySelector(selector))[property]));
+    const originalForeground = await foreground();
+    await page.getByRole('button', { name: '抠像底色', exact: true }).click();
+    const backdrop = page.getByRole('dialog', { name: '抠像底色' });
+    const settingsBox = await backdrop.boundingBox();
+    assert(settingsBox && settingsBox.x >= 0 && settingsBox.y >= 0 && settingsBox.x + settingsBox.width <= viewport.width && settingsBox.y + settingsBox.height <= viewport.height, 'backdrop settings clipped');
+    assert.equal(await backdrop.getByRole('checkbox').isChecked(), false);
+    await backdrop.getByRole('button', { name: '绿幕', exact: true }).click();
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.studio-live-stage')).backgroundColor === 'rgb(0, 255, 0)');
+    await page.screenshot({ path: `/private/tmp/boss-live-chroma-settings-${viewport.width}.png` });
+    await backdrop.getByRole('button', { name: '完成', exact: true }).click();
+    await page.mouse.move(0, 0);
+    assert.deepEqual(await foreground(), originalForeground, 'foreground palette changed');
+    assert.equal(await page.locator('.studio-live-stage').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 255, 0)');
+    assert.equal(await page.locator('.studio-live-stage').evaluate(el => getComputedStyle(el, '::before').display), 'none', 'gradient pollutes key color');
+    assert.equal(await page.locator('.studio-live-message').evaluate(el => getComputedStyle(el).boxShadow), 'none', 'shadow pollutes key color');
+    await page.screenshot({ path: `/private/tmp/boss-live-chroma-${viewport.width}.png` });
+    await page.reload();
+    await page.getByRole('heading', { name: item().nickname }).waitFor();
+    await page.locator('.studio-live-stage').evaluate(el => Promise.all(el.getAnimations({ subtree: true }).map(animation => animation.finished)));
+    assert.equal(await page.locator('.studio-live-stage').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 255, 0)', 'key color was not restored');
+    await page.getByRole('button', { name: '抠像底色', exact: true }).click();
+    await backdrop.getByLabel('自定义颜色').fill('#1234ef');
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.studio-live-stage')).backgroundColor === 'rgb(18, 52, 239)');
+    await page.keyboard.press('Escape');
+    assert.equal(await backdrop.isVisible(), false);
+    assert.equal(await page.locator('.studio-live-stage').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(18, 52, 239)');
+    assert(await page.getByRole('button', { name: '抠像底色', exact: true }).evaluate(el => document.activeElement === el), 'dialog did not restore focus');
+    await page.getByRole('button', { name: '抠像底色', exact: true }).click();
+    await backdrop.getByRole('button', { name: '恢复原背景' }).click();
+    await backdrop.getByRole('button', { name: '完成', exact: true }).click();
+    assert.equal(await page.locator('.studio-shell').getAttribute('data-chroma'), null);
+    assert.equal(await page.locator('.studio-live-stage').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(14, 23, 28)');
+
+    await page.getByRole("button", { name: "放大留言图片 1" }).click();
+    await page.getByRole("dialog").waitFor();
+    await page.getByRole("button", { name: "关闭图片" }).click();
+    long = true;
+    await page.reload();
+    await page.getByRole("heading", { name: item().nickname }).waitFor();
+    await page.locator('.studio-live-stage').evaluate(el => Promise.all(el.getAnimations({ subtree: true }).map(animation => animation.finished)));
+    const scroll = page.locator(".studio-live-message-scroll");
+    assert(await scroll.evaluate(el => el.querySelector("p").getBoundingClientRect().top >= el.getBoundingClientRect().top), "long message start inaccessible");
+    await scroll.evaluate(el => { el.scrollTop = el.scrollHeight; });
+    const imageBox = await page.getByRole("button", { name: "放大留言图片 1" }).boundingBox();
+    assert(imageBox && imageBox.y < viewport.height && imageBox.y + imageBox.height <= viewport.height + 1, "long message end inaccessible");
+    await page.getByRole("button", { name: "下一页", exact: true }).click();
+    await page.getByRole("button", { name: "已到最后一页" }).waitFor();
+    assert(await page.getByRole("button", { name: "已到最后一页" }).isDisabled());
+    await page.getByRole("button", { name: "退出直播模式" }).click();
+    await page.getByRole("heading", { name: "未回复留言" }).waitFor();
+    assert(writes.every(path => path.endsWith("/session/mode")), "unexpected write");
+    assert.deepEqual(errors, []);
+    console.log(`PASS live ${viewport.width}×${viewport.height}: entry, content isolation, chroma + persistence + reset, media, long-content scrolling, next, exit`);
+    await context.close();
+  }
+} finally { await browser.close(); }

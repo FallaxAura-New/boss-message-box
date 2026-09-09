@@ -1,4 +1,5 @@
 import {
+  ArrowsOutSimple,
   Broadcast,
   CaretDown,
   CheckCircle,
@@ -10,13 +11,14 @@ import {
   SquaresFour,
   X,
 } from "@phosphor-icons/react";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Button } from "../../../components/Button";
 import { captureReturnContext, clearLiveReturn, loadLiveReturn, saveLiveReturn } from "../navigation-context";
 import { useStudioSession } from "../use-studio-session";
 import { StudioLoading } from "./AsyncState";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { LiveBackdropControl } from "./LiveBackdropControl";
+import { loadLiveBackdrop, saveLiveBackdrop, type LiveBackdrop } from "../live-backdrop";
 
 export interface StudioOutletContext {
   liveMode: boolean;
@@ -86,8 +88,11 @@ export function StudioShell() {
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [modeBusy, setModeBusy] = useState(false);
   const [modeError, setModeError] = useState<string | null>(null);
+  const [liveBackdrop, setLiveBackdrop] = useState(loadLiveBackdrop);
+  const [backdropSaved, setBackdropSaved] = useState(true);
   const mobileNavRef = useRef<HTMLDetailsElement>(null);
   const modeActionRef = useRef(false);
+  const modeDestinationRef = useRef<string | null>(null);
   const liveRequested = searchParams.get("mode") === "live";
   const liveMode = liveRequested || mode === "live";
   const liveModeReady = !liveRequested || mode === "live";
@@ -96,6 +101,11 @@ export function StudioShell() {
 
   useEffect(() => {
     if (modeActionRef.current) return;
+    // Router navigation may commit after the session update. Do not rewrite the old route.
+    if (modeDestinationRef.current) {
+      if (location.pathname !== modeDestinationRef.current) return;
+      modeDestinationRef.current = null;
+    }
     if (mode === "normal" && liveRequested) {
       const synchronizeLiveMode = async () => {
         setModeBusy(true);
@@ -113,7 +123,7 @@ export function StudioShell() {
       next.set("mode", "live");
       setSearchParams(next, { replace: true, state: locationState });
     }
-  }, [liveRequested, locationState, mode, searchParams, setMode, setSearchParams]);
+  }, [liveRequested, location.pathname, locationState, mode, searchParams, setMode, setSearchParams]);
 
   const enterLiveMode = async () => {
     const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-feedback-id]"));
@@ -137,9 +147,20 @@ export function StudioShell() {
     modeActionRef.current = true;
     try {
       await setMode("live");
-      const next = new URLSearchParams(searchParams);
-      next.set("mode", "live");
-      setSearchParams(next, { state: locationState });
+      if (anchorId) {
+        const view = location.pathname === "/studio/todo" ? "todo" : "unreplied";
+        const next = new URLSearchParams({ mode: "live", view });
+        const topic = searchParams.get("topic");
+        if (topic) next.set("topic", topic);
+        modeDestinationRef.current = `/studio/feedback/${encodeURIComponent(anchorId)}`;
+        navigate(`${modeDestinationRef.current}?${next}`, {
+          state: { returnContext, searchRestore: searchContext },
+        });
+      } else {
+        const next = new URLSearchParams(searchParams);
+        next.set("mode", "live");
+        setSearchParams(next, { state: locationState });
+      }
     } catch (error) {
       setModeError(error instanceof Error ? error.message : "无法进入直播模式");
     } finally {
@@ -190,23 +211,41 @@ export function StudioShell() {
     }
   };
 
+  const changeLiveBackdrop = (value: LiveBackdrop) => {
+    setLiveBackdrop(value);
+    setBackdropSaved(saveLiveBackdrop(value));
+  };
+
   const liveActions: ReactNode = liveMode ? (
     <div className="studio-live-actions">
+      <LiveBackdropControl value={liveBackdrop} saved={backdropSaved} onChange={changeLiveBackdrop} />
       <button
         type="button"
-        className="studio-toolbar-button"
-        onClick={() => void document.documentElement.requestFullscreen?.()}
+        className="studio-live-action"
+        aria-label="全屏展示"
+        onClick={() => void document.documentElement.requestFullscreen?.().catch(() => setModeError("暂时无法全屏，请重试或使用浏览器全屏。"))}
       >
-        <Broadcast aria-hidden="true" weight="bold" />全屏展示
+        <ArrowsOutSimple aria-hidden="true" weight="bold" /><span>全屏</span>
       </button>
-      <Button type="button" variant="secondary" loading={modeBusy} onClick={() => void exitLiveMode()}>
-        退出直播模式
-      </Button>
+      <button
+        type="button"
+        className="studio-live-action studio-live-exit"
+        aria-label="退出直播模式"
+        disabled={modeBusy}
+        onClick={() => void exitLiveMode()}
+      >
+        <X aria-hidden="true" weight="bold" /><span>{modeBusy ? "退出中" : "退出"}</span>
+      </button>
     </div>
   ) : null;
 
   return (
-    <div className="studio-shell" data-mode={liveMode ? "live" : "normal"}>
+    <div
+      className="studio-shell"
+      data-mode={liveMode ? "live" : "normal"}
+      data-chroma={liveMode && liveBackdrop.enabled ? "true" : undefined}
+      style={liveMode && liveBackdrop.enabled ? { "--live-canvas": liveBackdrop.color } as CSSProperties : undefined}
+    >
       <aside className="studio-sidebar">
         <StudioBrand />
         <StudioNavigation />
@@ -214,7 +253,7 @@ export function StudioShell() {
           {liveEntryAvailable && (
             <button type="button" className="studio-live-toggle" disabled={modeBusy} onClick={() => void enterLiveMode()}>
               <Broadcast aria-hidden="true" weight="bold" />
-              <span><strong>直播展示模式</strong><small>聚焦留言与现场回复</small></span>
+              <span><strong>直播展示模式</strong><small>聚焦鹏友留言与图片</small></span>
             </button>
           )}
           <div className="studio-admin-row">

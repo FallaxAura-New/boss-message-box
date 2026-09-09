@@ -1,4 +1,11 @@
 const colors = {
+  liveBg: "#0e171c",
+  livePanel: "#19252b",
+  livePaper: "#eee8dc",
+  liveBrass: "#cfb78b",
+  liveCoral: "#ff6570",
+  liveMuted: "#a8b4b7",
+  liveEmblem: "#512f36",
   bg: [0.17, 0.028, 254],
   bgDeep: [0.135, 0.026, 254],
   surface: [0.215, 0.034, 253],
@@ -18,7 +25,14 @@ const colors = {
   neutralStatus: [0.68, 0.025, 248],
 };
 
-function toLinearRgb([lightness, chroma, hue]) {
+function toLinearRgb(value) {
+  if (typeof value === "string") {
+    return value.slice(1).match(/../g).map(hex => {
+      const channel = parseInt(hex, 16) / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+  }
+  const [lightness, chroma, hue] = value;
   const radians = (hue * Math.PI) / 180;
   const a = chroma * Math.cos(radians);
   const b = chroma * Math.sin(radians);
@@ -58,6 +72,12 @@ function contrast(foreground, background) {
 }
 
 const checks = [
+  ["直播昵称 / 舞台", "livePaper", "liveBg", 4.5],
+  ["直播铭牌 / 最亮背景上界", "liveBrass", "liveEmblem", 4.5],
+  ["直播按钮 / 珊瑚红", "liveBg", "liveCoral", 4.5],
+  ["直播辅助文字 / 面板", "liveMuted", "livePanel", 4.5],
+  ["直播错误 / 面板", "danger", "livePanel", 4.5],
+  ["直播正文 / 留言表面", "livePaper", "livePanel", 4.5],
   ["正文 / 页面", "text", "bg", 4.5],
   ["次级文字 / 页面", "textSecondary", "bg", 4.5],
   ["弱化文字 / 表单面板", "textMuted", "surface", 4.5],

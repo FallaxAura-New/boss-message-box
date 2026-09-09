@@ -1,7 +1,6 @@
 import {
   ArrowLeft,
   ArrowRight,
-  Broadcast,
   ChatCircleText,
   Clock,
   Eye,
@@ -160,7 +159,7 @@ export function FeedbackDetailPage() {
       replyRef.current?.focus();
       return false;
     }
-    if (!liveMode && !replyType) {
+    if (!replyType) {
       setReplyError("请选择直播回复或留言回复");
       return false;
     }
@@ -169,11 +168,11 @@ export function FeedbackDetailPage() {
   };
 
   const submitReply = async () => {
-    if (!item || actionRef.current || !validateReply()) return;
+    if (liveMode || !item || actionRef.current || !validateReply()) return;
     actionRef.current = true;
     setSubmitting(true);
     try {
-      await saveReply(replyContent.trim(), liveMode ? undefined : replyType ?? undefined);
+      await saveReply(replyContent.trim(), replyType ?? undefined);
       setReplyType(null);
       setConfirmOpen(false);
     } catch (reason) {
@@ -269,25 +268,12 @@ export function FeedbackDetailPage() {
 
   const goNext = async () => {
     if (!item || actionRef.current) return;
-    const content = replyContent.trim();
-    if (atEnd && !content) return;
-    if (content.length > 2000) {
-      setReplyError("回复内容不能超过 2000 个字符");
-      replyRef.current?.focus();
-      return;
-    }
+    if (atEnd) return;
     actionRef.current = true;
     setNextBusy(true);
     setReplyError(null);
     setLiveNotice(null);
     try {
-      if (content) {
-        await saveReply(content);
-      }
-      if (atEnd) {
-        setLiveNotice("回复已保存，已经是最后一条了");
-        return;
-      }
       const query = new URLSearchParams(location.search);
       const view = query.get("view") === "todo" ? "todo" : "unreplied";
       const topicValue = query.get("topic");
@@ -298,7 +284,7 @@ export function FeedbackDetailPage() {
       if (currentFeedbackRef.current !== item.id) return;
       if (!next.nextFeedbackId) {
         setAtEnd(true);
-        setLiveNotice("已经是最后一条了");
+        setLiveNotice("已经是最后一页了");
         return;
       }
       const nextQuery = new URLSearchParams({ mode: "live", view });
@@ -317,9 +303,9 @@ export function FeedbackDetailPage() {
   };
 
   const requestSubmit = () => {
+    if (liveMode) return;
     if (!validateReply()) return;
-    if (liveMode) void submitReply();
-    else setConfirmOpen(true);
+    setConfirmOpen(true);
   };
 
   if (error) return <div className="studio-page"><StudioError message={error} onRetry={() => { setError(null); setLoaded(null); setReload((value) => value + 1); }} /></div>;
@@ -332,6 +318,54 @@ export function FeedbackDetailPage() {
   const replies = [...item.replies].sort((left, right) => left.createdAt - right.createdAt);
   const fullPhone = !liveMode && revealedPhone && revealedPhone.userId === item.userId ? revealedPhone.phone : null;
   const currentDetailUrl = `${location.pathname}${location.search}`;
+
+  if (liveMode) {
+    return (
+      <div className="studio-live-page">
+        <section key={item.id} className="studio-live-stage" aria-label="直播留言展示">
+          <aside className="studio-live-identity" aria-labelledby="studio-live-friend-name">
+            <div className="studio-live-signal-mark" aria-hidden="true"><i /><i /><i /></div>
+            <div className="studio-live-friend">
+              <span>鹏友</span>
+              <h1 id="studio-live-friend-name">{item.nickname}</h1>
+            </div>
+            <div className="studio-live-next-wrap">
+              {replyError && <span className="studio-live-error" role="alert">{replyError}</span>}
+              {liveNotice && <span role="status">{liveNotice}</span>}
+              <Button
+                type="button"
+                className="studio-live-next"
+                loading={nextBusy}
+                loadingLabel="正在打开下一页"
+                disabled={atEnd}
+                icon={<ArrowRight aria-hidden="true" weight="bold" />}
+                onClick={() => void goNext()}
+              >
+                {atEnd ? "已到最后一页" : "下一页"}
+              </Button>
+            </div>
+          </aside>
+
+          <article className={`studio-live-message${images.length > 0 ? " studio-live-message--with-images" : ""}`} aria-label="留言内容">
+            <div className="studio-live-message-scroll">
+              <p>{item.content}</p>
+              {images.length > 0 && (
+                <div className={`studio-live-images studio-live-images--${images.length}`}>
+                  {images.map((image, index) => (
+                    <button key={image.id} type="button" onClick={() => setLightboxIndex(index)} aria-label={`放大留言图片 ${index + 1}`}>
+                      <img src={image.src} alt={image.alt} width={image.width} height={image.height} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </article>
+        </section>
+
+        {lightboxIndex !== null && <Lightbox images={images} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />}
+      </div>
+    );
+  }
 
   return (
     <div className="studio-page studio-detail-page">
@@ -348,7 +382,7 @@ export function FeedbackDetailPage() {
       <article className="studio-feedback-detail">
         <div className="studio-detail-identity">
           <div><span>抖音昵称</span>{item.userId ? (
-            <Link to={`/studio/user/${encodeURIComponent(item.userId)}${liveMode ? "?mode=live" : ""}`} state={{ backTo: currentDetailUrl, detailState: location.state }}><UserCircle aria-hidden="true" />{item.nickname}</Link>
+            <Link to={`/studio/user/${encodeURIComponent(item.userId)}`} state={{ backTo: currentDetailUrl, detailState: location.state }}><UserCircle aria-hidden="true" />{item.nickname}</Link>
           ) : (
             <strong><UserCircle aria-hidden="true" />{item.nickname}</strong>
           )}</div>
@@ -382,9 +416,6 @@ export function FeedbackDetailPage() {
 
         {item.userId && item.maskedPhone && <section className="studio-detail-section studio-phone-section" aria-labelledby="studio-phone-title">
           <span id="studio-phone-title">手机号</span>
-          {liveMode ? (
-            <div className="studio-phone-value is-locked"><Broadcast aria-hidden="true" />直播模式下仅显示 {item.maskedPhone}</div>
-          ) : (
             <button
               type="button"
               className="studio-phone-value"
@@ -396,7 +427,6 @@ export function FeedbackDetailPage() {
               {revealing ? "正在读取…" : fullPhone ?? item.maskedPhone}
               {!fullPhone && !revealing && <small>双击显示完整号码</small>}
             </button>
-          )}
         </section>}
 
         {!liveMode && (
@@ -454,12 +484,10 @@ export function FeedbackDetailPage() {
       </article>
 
       <section className="studio-reply-composer" aria-labelledby="studio-compose-title">
-        <div className="studio-section-title"><h2 id="studio-compose-title">{liveMode ? "直播回复（可留空）" : "追加回复"}</h2><small>{replyContent.length} / 2000</small></div>
+        <div className="studio-section-title"><h2 id="studio-compose-title">追加回复</h2><small>{replyContent.length} / 2000</small></div>
         <fieldset className="studio-reply-types" disabled={submitting || nextBusy || replyPending}>
           <legend>回复方式</legend>
-          {liveMode ? (
-            <div className="studio-locked-reply-type"><Broadcast aria-hidden="true" />直播回复</div>
-          ) : (["live", "message"] as const).map((type) => (
+          {(["live", "message"] as const).map((type) => (
             <label key={type}>
               <input type="radio" name="reply-type" value={type} checked={replyType === type} onChange={() => setReplyType(type)} />
               <span>{type === "live" ? "直播回复" : "留言回复"}</span>
@@ -484,28 +512,11 @@ export function FeedbackDetailPage() {
         />
         {replyError && <p id="studio-reply-error" className="studio-field-error" role="alert">{replyError}</p>}
         {replyPending && !submitting && !nextBusy && <p role="status">尚未确认回复是否保存，请重试提交。确认前会保留原回复内容。</p>}
-        {!liveMode && <div className="studio-detail-actions">
+        <div className="studio-detail-actions">
           <Button type="button" variant="quiet" icon={<ArrowLeft aria-hidden="true" />} onClick={goBack}>返回</Button>
           <Button type="button" loading={submitting} loadingLabel="正在提交" icon={<PaperPlaneTilt aria-hidden="true" weight="fill" />} onClick={requestSubmit}>提交</Button>
-        </div>}
-      </section>
-
-      {liveMode && (
-        <div className="studio-live-next-wrap">
-          {liveNotice && <span role="status">{liveNotice}</span>}
-          <Button
-            type="button"
-            className="studio-live-next"
-            loading={nextBusy}
-            loadingLabel={replyContent.trim() ? "正在保存并前进" : "正在打开下一条"}
-            disabled={atEnd && !replyContent.trim()}
-            icon={<ArrowRight aria-hidden="true" weight="bold" />}
-            onClick={() => void goNext()}
-          >
-            {atEnd ? replyContent.trim() ? "保存回复" : "已经是最后一条" : "下一条"}
-          </Button>
         </div>
-      )}
+      </section>
 
       <ConfirmDialog
         open={confirmOpen}
