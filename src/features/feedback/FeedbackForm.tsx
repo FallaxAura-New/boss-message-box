@@ -46,6 +46,7 @@ function draftHasContent(draft: DraftState): boolean {
     draft.topic ||
       draft.content ||
       draft.nickname ||
+      draft.shopPhone ||
       draft.imagesEnabled ||
       draft.privacyAgreed ||
       draft.livestreamAgreed,
@@ -421,7 +422,22 @@ export function FeedbackForm({ config }: { config: PublicConfig }) {
           />
         </FormField>
 
-        <FormField index="04" label="上传图片" helper="选填，最多 3 张。" error={imageMessage ?? undefined}>
+        <FormField index="04" label="张导小店绑定手机号" htmlFor="shop-phone" helper="选填" error={errors.shopPhone}>
+          <input
+            id="shop-phone"
+            type="text"
+            disabled={locked}
+            value={draft.shopPhone}
+            maxLength={100}
+            autoComplete="tel"
+            placeholder="请输入张导小店绑定手机号（选填）"
+            onChange={(event) => update("shopPhone", event.target.value)}
+            aria-invalid={Boolean(errors.shopPhone)}
+            aria-describedby={"shop-phone-helper" + (errors.shopPhone ? " shop-phone-error" : "")}
+          />
+        </FormField>
+
+        <FormField index="05" label="上传图片" helper="选填，最多 3 张。" error={imageMessage ?? undefined}>
           <div className="optional-upload-control">
             <span>需要上传图片时再开启</span>
             <label className="switch-control" htmlFor="images-enabled">

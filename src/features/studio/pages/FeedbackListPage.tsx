@@ -14,6 +14,7 @@ import { StudioEmpty, StudioError, StudioLoading } from "../components/AsyncStat
 import { FeedbackCard } from "../components/FeedbackCard";
 import type { StudioOutletContext } from "../components/StudioShell";
 import { StudioStats } from "../components/StudioStats";
+import { ExportFeedbackControl } from "../components/ExportFeedbackControl";
 
 const VIEW_COPY: Record<StudioFeedbackView, { title: string; description: string; empty: string }> = {
   unreplied: { title: "未回复留言", description: "最新提交排在最前，每页显示 30 条。", empty: "目前没有等待回复的留言。" },
@@ -192,6 +193,7 @@ export function FeedbackListPage({ view }: { view: StudioFeedbackView }) {
               </label>
             )}
             {result && <span className="studio-total">共 {result.pagination.total} 条</span>}
+            {!liveMode && <ExportFeedbackControl key={`${view}:${topic ?? ""}`} view={view} topic={topic} snapshot={snapshot} title={copy.title} />}
           </div>
         )}
       </header>

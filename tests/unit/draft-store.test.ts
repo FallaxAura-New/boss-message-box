@@ -37,6 +37,7 @@ describe("local draft storage", () => {
       topic: "released_hardware" as const,
       content: "保留中的草稿",
       nickname: "测试昵称",
+      shopPhone: "+853 6612-3456",
       imagesEnabled: true,
       privacyAgreed: true,
     };
@@ -45,6 +46,7 @@ describe("local draft storage", () => {
       topic: "released_hardware",
       content: "保留中的草稿",
       nickname: "测试昵称",
+      shopPhone: "+853 6612-3456",
       imagesEnabled: true,
       privacyAgreed: true,
     });
@@ -62,5 +64,10 @@ describe("local draft storage", () => {
     const images = await loadDraftImages();
     expect(images).toHaveLength(1);
     expect(images[0]).toMatchObject({ id: "image-1", width: 10, height: 10, byteSize: 3 });
+  });
+
+  it("loads older drafts without a shop phone as an empty field", () => {
+    localStorage.setItem("boss-message-box:draft:v1", JSON.stringify({ submissionKey: crypto.randomUUID(), nickname: "旧草稿" }));
+    expect(loadDraft()?.shopPhone).toBe("");
   });
 });

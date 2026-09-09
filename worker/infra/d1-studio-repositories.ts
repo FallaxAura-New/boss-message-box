@@ -21,10 +21,11 @@ import type {
   StudioSessionRecord,
 } from "../core/studio-ports";
 
-interface SummaryRow {
+export interface SummaryRow {
   id: string;
   user_id: string | null;
   douyin_nickname: string;
+  shop_phone: string | null;
   topic: Topic;
   custom_topic: string | null;
   content: string;
@@ -38,9 +39,9 @@ interface SummaryRow {
   moderation_reason: string | null;
 }
 
-const SUMMARY_SELECT = `
+export const SUMMARY_SELECT = `
   SELECT f.id, f.user_id, COALESCE(f.douyin_nickname, u.douyin_nickname) AS douyin_nickname,
-         f.topic, f.custom_topic, f.content, f.created_at, f.is_todo,
+         f.shop_phone, f.topic, f.custom_topic, f.content, f.created_at, f.is_todo,
          f.moderation_status, f.moderation_category, f.moderation_reason,
          (SELECT COUNT(*) FROM feedback_images image WHERE image.feedback_id = f.id) AS image_count,
          (SELECT COUNT(*) FROM feedback_replies reply WHERE reply.feedback_id = f.id) AS reply_count,
@@ -57,7 +58,7 @@ function feedbackNumber(id: string): string {
   return id.slice(0, 8).toUpperCase();
 }
 
-function mapSummary(row: SummaryRow): StudioFeedbackSummary {
+export function mapSummary(row: SummaryRow): StudioFeedbackSummary {
   const replyCount = Number(row.reply_count);
   const filtered = row.moderation_status === "filtered";
   return {
@@ -80,7 +81,7 @@ function mapSummary(row: SummaryRow): StudioFeedbackSummary {
   };
 }
 
-function viewFilter(view: StudioListInput["view"]): string {
+export function viewFilter(view: StudioListInput["view"]): string {
   const normal = "f.moderation_status <> 'filtered'";
   switch (view) {
     case "unreplied":
@@ -288,6 +289,7 @@ export class D1StudioRepository implements StudioRepository {
     return {
       ...mapSummary(row),
       content: row.content,
+      shopPhone: row.shop_phone,
       maskedPhone: row.user_id ? "1**********" : null,
       images,
       replies,

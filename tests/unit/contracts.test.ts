@@ -21,6 +21,17 @@ const base = {
 } as const;
 
 describe("shared validation", () => {
+  it("accepts optional shop phones without a country or number format restriction", () => {
+    for (const shopPhone of ["+853 6612-3456", "020 1234 5678", "(212) 555 0100", "00123", "文字也不做号码校验"]) {
+      expect(feedbackFieldsSchema.parse({ ...base, topic: "appeal", shopPhone: ` ${shopPhone} ` }).shopPhone).toBe(shopPhone);
+    }
+    for (const shopPhone of [undefined, null, "", "   "]) {
+      expect(feedbackFieldsSchema.parse({ ...base, topic: "appeal", shopPhone }).shopPhone).toBeNull();
+    }
+    expect(feedbackFieldsSchema.safeParse({ ...base, topic: "appeal", shopPhone: "1".repeat(100) }).success).toBe(true);
+    expect(feedbackFieldsSchema.safeParse({ ...base, topic: "appeal", shopPhone: "1".repeat(101) }).success).toBe(false);
+  });
+
   it("accepts every fixed topic without a custom topic", () => {
     for (const topic of TOPIC_VALUES.filter((value) => value !== "other")) {
       expect(feedbackFieldsSchema.safeParse({ ...base, topic }).success).toBe(true);

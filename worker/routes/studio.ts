@@ -26,6 +26,7 @@ import { Pbkdf2PasswordVerifier } from "../security/password";
 import { StudioAuthService } from "../services/studio-auth-service";
 import { StudioService } from "../services/studio-service";
 import { createAiModerationService } from "../services/moderation-factory";
+import { readStudioExport } from "../infra/d1-studio-export";
 
 const SESSION_COOKIE = "__Host-boss_studio_session";
 const SESSION_MAX_AGE = 30 * 24 * 60 * 60;
@@ -63,6 +64,13 @@ const nextFeedbackQuerySchema = z.object({
   view: z.enum(["unreplied", "todo"]),
   topic: topicSchema.optional(),
 });
+const exportCursorSchema = z.object({ createdAt: z.number().int().nonnegative(), id: z.string().uuid() });
+const exportQuerySchema = z.object({
+  view: z.union([studioFeedbackViewSchema, z.literal("all")]),
+  topic: topicSchema.nullable(),
+  snapshot: exportCursorSchema.nullable(),
+  before: exportCursorSchema.nullable(),
+}).refine(value => !value.before || Boolean(value.snapshot), { message: "导出游标缺少快照" });
 
 function services(env: Env): {
   auth: StudioAuthService;
@@ -220,6 +228,17 @@ studioRoutes.post("/search", async (context) => {
       session: context.get("studioSession"),
     }),
   );
+});
+
+studioRoutes.post("/export", async (context) => {
+  requireSameOrigin(context.req.raw);
+  if (context.get("studioSession").mode !== "normal") {
+    throw new PublicError(403, "FORBIDDEN", "请先退出直播模式再导出留言");
+  }
+  const parsed = exportQuerySchema.safeParse(await context.req.json().catch(() => null));
+  if (!parsed.success) throw validationError(parsed.error);
+  context.header("Cache-Control", "private, no-store");
+  return context.json(await readStudioExport(context.env.BOSS_MESSAGE_DB, parsed.data));
 });
 
 studioRoutes.get("/feedbacks/:feedbackId", async (context) => {

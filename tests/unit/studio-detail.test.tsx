@@ -19,6 +19,7 @@ const detail = {
     imageCount: 0,
     images: [],
     maskedPhone: "1**********",
+    shopPhone: "+853 6612-3456",
     createdAt: Date.UTC(2026, 8, 3),
     status: "unreplied",
     isTodo: false,
@@ -92,6 +93,13 @@ function mockDetailApi() {
 }
 
 describe("Studio reply interaction", () => {
+  it("shows the shop phone directly in normal mode without a reveal action", async () => {
+    mockDetailApi();
+    renderDetail(false);
+    expect(await screen.findByText("+853 6612-3456")).toBeInTheDocument();
+    expect(screen.getByText("张导小店绑定手机号")).toBeInTheDocument();
+  });
+
   it("requires confirmation for a normal-mode reply", async () => {
     const fetchMock = mockDetailApi();
     const user = userEvent.setup();
@@ -127,7 +135,7 @@ describe("Studio reply interaction", () => {
     await screen.findByRole("heading", { name: "测试昵称" });
     expect(screen.getByText("鹏友")).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "留言内容" })).toHaveTextContent("完整留言");
-    for (const hidden of ["申冤", "未回复", "#22222222", "手机号", "1**********", "提交时间", "历史回复", "不应出现在直播画面的历史回复", "直播回复", "追加回复"]) {
+    for (const hidden of ["申冤", "未回复", "#22222222", "手机号", "1**********", "张导小店绑定手机号", "+853 6612-3456", "提交时间", "历史回复", "不应出现在直播画面的历史回复", "直播回复", "追加回复"]) {
       expect(screen.queryByText(hidden)).not.toBeInTheDocument();
     }
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();

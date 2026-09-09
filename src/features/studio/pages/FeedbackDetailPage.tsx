@@ -414,6 +414,11 @@ export function FeedbackDetailPage() {
           </section>
         )}
 
+        <section className="studio-detail-section studio-phone-section studio-shop-phone-section" aria-labelledby="studio-shop-phone-title">
+          <span id="studio-shop-phone-title">张导小店绑定手机号</span>
+          <strong>{item.shopPhone || "未填写"}</strong>
+        </section>
+
         {item.userId && item.maskedPhone && <section className="studio-detail-section studio-phone-section" aria-labelledby="studio-phone-title">
           <span id="studio-phone-title">手机号</span>
             <button

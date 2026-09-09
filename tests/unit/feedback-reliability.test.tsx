@@ -10,7 +10,7 @@ vi.mock("../../src/lib/api", async (original) => ({ ...await original<typeof imp
 vi.mock("../../src/features/feedback/image-compression", () => ({ compressImage: mocks.compress }));
 vi.mock("../../src/features/feedback/draft-store", async (original) => ({
   ...await original<typeof import("../../src/features/feedback/draft-store")>(),
-  loadDraft: () => ({ submissionKey: crypto.randomUUID(), imagesVersion: 2, topic: "appeal", customTopic: null, content: "待提交内容", nickname: "回归测试", imagesEnabled: true, privacyAgreed: true, livestreamAgreed: true, updatedAt: 1 }),
+  loadDraft: () => ({ submissionKey: crypto.randomUUID(), imagesVersion: 2, topic: "appeal", customTopic: null, content: "待提交内容", nickname: "回归测试", shopPhone: "", imagesEnabled: true, privacyAgreed: true, livestreamAgreed: true, updatedAt: 1 }),
   loadDraftImages: async () => [], clearDraftImages: mocks.clearImages, saveDraftImage: mocks.saveImage, saveIdentity: mocks.saveIdentity,
 }));
 vi.mock("../../src/components/TurnstileWidget", () => ({
@@ -39,6 +39,14 @@ async function mount() {
 function chooseImage() {
   fireEvent.change(document.getElementById("images")!, { target: { files: [new File(["image"], "test.jpg", { type: "image/jpeg" })] } });
 }
+
+it("submits the shop phone with the other form fields", async () => {
+  await mount();
+  await userEvent.type(screen.getByRole("textbox", { name: "张导小店绑定手机号" }), "+853 6612-3456");
+  await userEvent.click(screen.getByRole("button", { name: "提交留言" }));
+  await screen.findByText("提交已完成");
+  expect(mocks.submit.mock.calls[0]![0]).toMatchObject({ shopPhone: "+853 6612-3456" });
+});
 
 it("waits for compression and sends the processed attachment", async () => {
   let finish!: (value: typeof compressed) => void;

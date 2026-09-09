@@ -1,4 +1,6 @@
 import type {
+  StudioExportInput,
+  StudioExportSuccess,
   StudioFeedbackDetailSuccess,
   StudioFeedbackListSuccess,
   StudioFeedbackView,
@@ -71,6 +73,10 @@ function jsonInit(method: string, body?: unknown): RequestInit {
 
 export function getStudioSession(signal?: AbortSignal): Promise<StudioSessionSuccess> {
   return request("/api/studio/session", { signal });
+}
+
+export function getStudioExport(input: StudioExportInput, signal?: AbortSignal): Promise<StudioExportSuccess> {
+  return request("/api/studio/export", { ...jsonInit("POST", input), signal });
 }
 
 export function loginStudio(input: { username: string; password: string }): Promise<StudioSessionSuccess> {

@@ -99,6 +99,7 @@ export interface StudioFeedbackImage {
 
 export interface StudioFeedbackDetail extends StudioFeedbackSummary {
   content: string;
+  shopPhone?: string | null;
   maskedPhone: string | null;
   images: StudioFeedbackImage[];
   replies: StudioReply[];
@@ -185,4 +186,18 @@ export interface StudioNewFeedbackCountSuccess {
 
 export interface StudioSearchSuccess extends StudioFeedbackListSuccess {
   queryType: "phone" | "feedback_number" | "nickname" | "combined";
+}
+
+export interface StudioExportInput {
+  view: StudioFeedbackView | "all";
+  topic: Topic | null;
+  snapshot: StudioSnapshot | null;
+  before: StudioSnapshot | null;
+}
+
+export interface StudioExportSuccess {
+  ok: true;
+  items: StudioFeedbackDetail[];
+  snapshot: StudioSnapshot | null;
+  nextCursor: StudioSnapshot | null;
 }

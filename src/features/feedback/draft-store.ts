@@ -18,6 +18,7 @@ export interface DraftState {
   customTopic: string | null;
   content: string;
   nickname: string;
+  shopPhone: string;
   imagesEnabled: boolean;
   privacyAgreed: boolean;
   livestreamAgreed: boolean;
@@ -51,6 +52,7 @@ export const EMPTY_DRAFT = (): DraftState => ({
   customTopic: null,
   content: "",
   nickname: "",
+  shopPhone: "",
   imagesEnabled: false,
   privacyAgreed: false,
   livestreamAgreed: false,
@@ -72,6 +74,7 @@ export function loadDraft(): DraftState | null {
       customTopic: typeof stored.customTopic === "string" ? stored.customTopic : null,
       content: typeof stored.content === "string" ? stored.content : "",
       nickname: typeof stored.nickname === "string" ? stored.nickname : "",
+      shopPhone: typeof stored.shopPhone === "string" ? stored.shopPhone : "",
       imagesEnabled: stored.imagesEnabled === true,
       privacyAgreed: stored.privacyAgreed === true,
       livestreamAgreed: stored.livestreamAgreed === true,

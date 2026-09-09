@@ -84,7 +84,7 @@ export class StudioService {
     if (session?.mode === "live" && !["kept", "failed"].includes(item.moderationStatus)) {
       throw new PublicError(403, "FORBIDDEN", "这条留言暂时不能进入直播模式，请返回列表");
     }
-    return { ok: true, item };
+    return { ok: true, item: session?.mode === "live" ? { ...item, shopPhone: null } : item };
   }
 
   async reply(input: {

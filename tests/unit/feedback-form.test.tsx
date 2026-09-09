@@ -11,12 +11,17 @@ const config = {
 };
 
 describe("feedback form", () => {
-  it("uses the required visible order and keeps phone and OTP out of the form", async () => {
+  it("keeps the shop phone optional and does not introduce OTP or country validation", async () => {
     render(<MemoryRouter><FeedbackForm config={config} /></MemoryRouter>);
-    const labels = ["留言主题", "留言内容", "抖音昵称", "上传图片"];
+    const labels = ["留言主题", "留言内容", "抖音昵称", "张导小店绑定手机号", "上传图片"];
     const positions = labels.map((label) => document.body.textContent!.indexOf(label));
     expect(positions).toEqual([...positions].sort((left, right) => left - right));
     expect(screen.queryByText("手机号")).not.toBeInTheDocument();
+    const shopPhone = screen.getByRole("textbox", { name: "张导小店绑定手机号" });
+    expect(shopPhone).not.toBeRequired();
+    expect(shopPhone).not.toHaveAttribute("pattern");
+    await userEvent.type(shopPhone, "+853 6612-3456");
+    expect(shopPhone).toHaveValue("+853 6612-3456");
     expect(screen.getByRole("switch", { name: /未开启/u })).not.toBeChecked();
     expect(screen.queryByRole("button", { name: "选择图片" })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

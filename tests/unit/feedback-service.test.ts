@@ -17,6 +17,7 @@ const fields: FeedbackSubmission = {
   customTopic: null,
   content: "上传验收测试",
   nickname: "测试昵称",
+  shopPhone: null,
   privacyAgreed: true,
   livestreamAgreed: true,
   turnstileToken: "turnstile-token",
@@ -69,6 +70,11 @@ function setup() {
 }
 
 describe("nickname submission limits", () => {
+  it("passes the optional shop phone unchanged to persistence", async () => {
+    const { feedback, service } = setup();
+    await service.submit({ fields: { ...fields, shopPhone: "+853 6612-3456" }, imageFiles: [], remoteIp: null, now });
+    expect(feedback.create).toHaveBeenCalledWith(expect.objectContaining({ shopPhone: "+853 6612-3456" }));
+  });
   it("returns a bounded history page and a cursor, then allows an empty last page", async () => {
     const { feedback, service } = setup();
     const items = Array.from({ length: 31 }, (_, index) => ({ id: crypto.randomUUID(), topic: "appeal" as const, customTopic: null, content: `留言${index}`, imageCount: 0, status: "unreplied" as const, replies: [], replyContent: null, createdAt: now - index }));

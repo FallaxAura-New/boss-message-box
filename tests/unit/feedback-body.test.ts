@@ -1,10 +1,22 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_FEEDBACK_BODY_BYTES, readFeedbackForm } from "../../worker/security/feedback-body";
+import { feedbackSubmissionSchema } from "../../src/shared/contracts";
 
 afterEach(() => vi.useRealTimers());
 
 describe("multipart resource budget", () => {
+  it("preserves an international shop phone through multipart JSON payload parsing", async () => {
+    const form = new FormData();
+    form.set("payload", JSON.stringify({
+      submissionKey: crypto.randomUUID(), topic: "appeal", customTopic: null,
+      content: "留言", nickname: "测试昵称", shopPhone: "+853 6612-3456",
+      privacyAgreed: true, livestreamAgreed: true, turnstileToken: "test",
+    }));
+    const parsed = await readFeedbackForm(new Request("https://example.test/api/feedback", { method: "POST", body: form }));
+    expect(feedbackSubmissionSchema.parse(JSON.parse(String(parsed.get("payload")))).shopPhone).toBe("+853 6612-3456");
+  });
+
   it("accepts a processed image above 2 MiB", async () => {
     const form = new FormData();
     form.set("payload", "{}");

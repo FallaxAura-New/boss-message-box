@@ -41,6 +41,8 @@ export const feedbackFieldsSchema = z
       .min(1, "请填写留言内容")
       .max(2000, "留言内容不能超过 2000 个字符"),
     nickname: nicknameSchema,
+    shopPhone: z.string().trim().max(100, "张导小店绑定手机号不能超过 100 个字符")
+      .nullish().transform((value) => value || null),
     privacyAgreed: z.literal(true, { message: "请阅读并同意隐私政策" }),
     livestreamAgreed: z.literal(true, { message: "请确认直播公开展示说明" }),
   })

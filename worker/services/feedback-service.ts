@@ -99,6 +99,7 @@ export class FeedbackService {
         id: feedbackId,
         submissionKey: input.fields.submissionKey,
         nickname: input.fields.nickname,
+        shopPhone: input.fields.shopPhone ?? null,
         beijingDay: day,
         topic: input.fields.topic,
         customTopic: input.fields.topic === "other" ? input.fields.customTopic : null,

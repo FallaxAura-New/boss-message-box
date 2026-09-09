@@ -24,6 +24,7 @@ export interface CreateFeedbackInput {
   id: string;
   submissionKey: string;
   nickname: string;
+  shopPhone?: string | null;
   topic: Topic;
   customTopic: string | null;
   content: string;

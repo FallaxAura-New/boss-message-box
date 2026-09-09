@@ -141,6 +141,7 @@ describe("Studio API", () => {
 
   it("enforces live-mode privacy, forces live replies, and serves only authenticated R2 images", async () => {
     const seeded = await seedFeedbackWithImage();
+    await testEnv.BOSS_MESSAGE_DB.prepare("UPDATE feedback SET shop_phone = ? WHERE id = ?").bind("+853 6612-3456", seeded.feedbackId).run();
     const { cookie } = await login();
     const authenticated = { Cookie: cookie };
 
@@ -166,6 +167,7 @@ describe("Studio API", () => {
     expect(detailText).toContain("1**********");
     expect(detailText).not.toContain("13906325777");
     expect(detailText).not.toContain("phoneEncrypted");
+    expect(JSON.parse(detailText).item.shopPhone).toBe("+853 6612-3456");
 
     const reveal = await api(`/api/studio/users/${seeded.userId}/reveal-phone`, {
       method: "POST",
@@ -209,6 +211,10 @@ describe("Studio API", () => {
     });
     expect(mode.status).toBe(200);
     expect((await mode.json() as { mode: string }).mode).toBe("live");
+    const liveDetail = await api(`/api/studio/feedbacks/${seeded.feedbackId}`, { headers: authenticated });
+    const liveDetailText = await liveDetail.text();
+    expect(JSON.parse(liveDetailText).item.shopPhone).toBeNull();
+    expect(liveDetailText).not.toContain("+853 6612-3456");
 
     const forbiddenReveal = await api(`/api/studio/users/${seeded.userId}/reveal-phone`, {
       method: "POST",
@@ -244,6 +250,8 @@ describe("Studio API", () => {
     expect(publicHistoryText).toContain('"replyType":"message"');
     expect(publicHistoryText).toContain('"replyType":"live"');
     expect(publicHistoryText).not.toContain("admin-zd");
+    expect(publicHistoryText).not.toContain("shopPhone");
+    expect(publicHistoryText).not.toContain("+853 6612-3456");
     expect(publicHistoryText).not.toContain('"adminUsername"');
 
     const imagePath = `/api/studio/feedbacks/${seeded.feedbackId}/images/${seeded.imageId}`;

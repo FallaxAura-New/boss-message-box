@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { D1FeedbackRepository, D1OtpRepository } from "../../worker/infra/d1-repositories";
 import { D1ModerationJobRepository } from "../../worker/infra/d1-moderation-jobs";
+import { D1StudioRepository } from "../../worker/infra/d1-studio-repositories";
 
 const PHONE_HASH = "test-phone-hmac-not-a-phone";
 
@@ -40,6 +41,20 @@ async function seedChallenge(challengeId: string, now: number): Promise<void> {
 }
 
 describe("D1 feedback repository", () => {
+  it("stores a shop phone per submission, exposes it in Studio detail, and omits it from public history", async () => {
+    const repository = new D1FeedbackRepository(env.BOSS_MESSAGE_DB);
+    const input = { ...feedbackInput({ now: Date.now() }), shopPhone: "+853 6612-3456" };
+    await repository.create(input);
+    expect(await new D1StudioRepository(env.BOSS_MESSAGE_DB).findFeedback(input.id)).toMatchObject({ shopPhone: input.shopPhone });
+    const history = await repository.findHistory(input.nickname);
+    expect(history).toHaveLength(1);
+    expect(history![0]).not.toHaveProperty("shopPhone");
+    expect(JSON.stringify(history)).not.toContain(input.shopPhone);
+    const oldInput = feedbackInput({ now: input.now + 1 });
+    await repository.create(oldInput);
+    expect(await new D1StudioRepository(env.BOSS_MESSAGE_DB).findFeedback(oldInput.id)).toMatchObject({ shopPhone: null });
+  });
+
   beforeEach(async () => {
     await env.BOSS_MESSAGE_DB.batch([
       env.BOSS_MESSAGE_DB.prepare("DELETE FROM feedback_replies"),

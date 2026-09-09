@@ -281,16 +281,17 @@ export class D1FeedbackRepository implements FeedbackRepository {
         this.db
           .prepare(
             `INSERT INTO feedback
-              (id, submission_key, user_id, douyin_nickname, topic, custom_topic, content, internal_status,
+              (id, submission_key, user_id, douyin_nickname, shop_phone, topic, custom_topic, content, internal_status,
                reply_type, reply_content, privacy_policy_version, privacy_agreed_at,
                livestream_policy_version, livestream_agreed_at, moderation_status,
                created_at, updated_at)
-             VALUES (?, ?, NULL, ?, ?, ?, ?, 'unprocessed', NULL, NULL, ?, ?, ?, ?, 'pending', ?, ?)`,
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 'unprocessed', NULL, NULL, ?, ?, ?, ?, 'pending', ?, ?)`,
           )
           .bind(
             input.id,
             input.submissionKey,
             input.nickname,
+            input.shopPhone ?? null,
             input.topic,
             input.customTopic,
             input.content,
