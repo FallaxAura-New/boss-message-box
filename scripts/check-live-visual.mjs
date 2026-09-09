@@ -53,6 +53,8 @@ try {
     assert.match(page.url(), /feedback\/.*mode=live/);
     assert.equal(await page.locator(".studio-reply-composer, .studio-reply-history, .studio-detail-heading").count(), 0);
     assert.equal(await page.getByText("鹏友", { exact: true }).count(), 0, "obsolete live label is still visible");
+    assert.equal(await page.getByText("已发布硬件", { exact: true }).count(), 1, "topic is missing below the nickname");
+    assert.equal(await page.getByText("主题", { exact: true }).count(), 0, "topic label should stay hidden");
     for (const name of ["上一条", "下一条", "退出直播模式"]) {
       const box = await page.getByRole("button", { name, exact: true }).boundingBox();
       if (!box || box.y < 0 || box.y + box.height > viewport.height) {

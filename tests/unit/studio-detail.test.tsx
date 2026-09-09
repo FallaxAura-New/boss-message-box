@@ -135,8 +135,10 @@ describe("Studio reply interaction", () => {
     await screen.findByRole("heading", { name: "测试昵称" });
     expect(screen.queryByText("鹏友")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "测试昵称" }).closest("header")).toHaveClass("studio-live-identity");
+    expect(screen.getByText("申冤").closest("header")).toHaveClass("studio-live-identity");
+    expect(screen.queryByText("主题", { exact: true })).not.toBeInTheDocument();
     expect(screen.getByRole("article", { name: "留言内容" })).toHaveTextContent("完整留言");
-    for (const hidden of ["申冤", "未回复", "#22222222", "手机号", "1**********", "张导小店绑定手机号", "+853 6612-3456", "提交时间", "历史回复", "不应出现在直播画面的历史回复", "直播回复", "追加回复"]) {
+    for (const hidden of ["未回复", "#22222222", "手机号", "1**********", "张导小店绑定手机号", "+853 6612-3456", "提交时间", "历史回复", "不应出现在直播画面的历史回复", "直播回复", "追加回复"]) {
       expect(screen.queryByText(hidden)).not.toBeInTheDocument();
     }
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();

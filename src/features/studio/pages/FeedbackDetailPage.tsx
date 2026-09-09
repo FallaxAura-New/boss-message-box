@@ -348,7 +348,10 @@ export function FeedbackDetailPage() {
           <div className="studio-live-frame">
             <header className="studio-live-identity">
               <div className="studio-live-signal-mark" aria-hidden="true"><i /><i /><i /></div>
-              <h1>{item.nickname}</h1>
+              <div className="studio-live-identity-copy">
+                <h1>{item.nickname}</h1>
+                <p>{topic || "其他"}</p>
+              </div>
             </header>
 
             <article className={`studio-live-message${images.length > 0 ? " studio-live-message--with-images" : ""}`} aria-label="留言内容">

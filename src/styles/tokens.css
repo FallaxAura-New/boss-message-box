@@ -37,9 +37,11 @@
   --type-caption: 0.875rem;
   --type-button: 1rem;
   --type-live-name: clamp(1.875rem, 3.6vw, 3.75rem);
+  --type-live-topic: clamp(1rem, 1.7vw, 1.35rem);
   --type-live-message: clamp(2rem, 3.8vw, 4.25rem);
   --type-live-message-media: clamp(1.5rem, 2.8vw, 3rem);
   --type-live-name-mobile: clamp(1.5rem, 7vw, 2.5rem);
+  --type-live-topic-mobile: 1rem;
   --type-live-message-mobile: clamp(1.5rem, 7vw, 2.25rem);
 
   /* Livestream-only tactical dossier: gunmetal, brass and signal coral. */
