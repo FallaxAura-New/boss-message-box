@@ -61,7 +61,7 @@ const newFeedbackQuerySchema = z.object({
 });
 const moderationUpdateSchema = z.object({ filtered: z.boolean() });
 const nextFeedbackQuerySchema = z.object({
-  view: z.enum(["unreplied", "todo"]),
+  view: studioFeedbackViewSchema,
   topic: topicSchema.optional(),
   direction: z.enum(["previous", "next"]).optional().default("next"),
 });

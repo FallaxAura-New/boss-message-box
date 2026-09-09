@@ -162,7 +162,7 @@ export function retryStudioModeration(feedbackId: string): Promise<{ ok: true }>
 
 export function getNextStudioFeedback(
   feedbackId: string,
-  view: "unreplied" | "todo",
+  view: StudioFeedbackView,
   topic?: Topic | null,
   direction: "previous" | "next" = "next",
 ): Promise<StudioNextFeedbackSuccess> {

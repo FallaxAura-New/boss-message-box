@@ -559,7 +559,7 @@ export class D1StudioRepository implements StudioRepository {
 
   async findNextFeedback(input: {
     currentFeedbackId: string;
-    view: "unreplied" | "todo";
+    view: StudioListInput["view"];
     topic: Topic | null;
     direction?: "previous" | "next";
   }): Promise<string | null> {

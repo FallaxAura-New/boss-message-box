@@ -111,7 +111,7 @@ export interface StudioRepository {
   }): Promise<{ moderationStatus: "filtered" | "kept"; isTodo: false } | null>;
   findNextFeedback(input: {
     currentFeedbackId: string;
-    view: "unreplied" | "todo";
+    view: StudioFeedbackView;
     topic: Topic | null;
     direction?: "previous" | "next";
   }): Promise<string | null>;

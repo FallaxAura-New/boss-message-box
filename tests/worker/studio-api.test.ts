@@ -204,9 +204,11 @@ describe("Studio API", () => {
       isTodo: false,
     });
 
-    expect((await api(`/api/studio/feedbacks/${seeded.feedbackId}/next?view=unreplied&direction=previous`, {
+    const normalNext = await api(`/api/studio/feedbacks/${seeded.feedbackId}/next?view=unreplied&direction=previous`, {
       headers: authenticated,
-    })).status).toBe(403);
+    });
+    expect(normalNext.status).toBe(200);
+    expect(await normalNext.json()).toEqual({ ok: true, nextFeedbackId: null });
 
     const mode = await api("/api/studio/session/mode", {
       method: "PUT",
@@ -224,6 +226,9 @@ describe("Studio API", () => {
     });
     expect(previous.status).toBe(200);
     expect(await previous.json()).toEqual({ ok: true, nextFeedbackId: null });
+    expect((await api(`/api/studio/feedbacks/${seeded.feedbackId}/next?view=replied`, {
+      headers: authenticated,
+    })).status).toBe(403);
     expect((await api(`/api/studio/feedbacks/${seeded.feedbackId}/next?view=unreplied&direction=sideways`, {
       headers: authenticated,
     })).status).toBe(400);

@@ -115,6 +115,40 @@ describe("Studio reply interaction", () => {
 
     await user.click(screen.getByRole("button", { name: "确认提交" }));
     await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
+    expect(await screen.findByRole("status")).toHaveTextContent("回复已提交");
+  });
+
+  it("opens the next feedback from the same list and topic after a successful reply", async () => {
+    const nextId = "44444444-4444-4444-8444-444444444444";
+    const fetchMock = mockDetailApi();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("/next?")) return Response.json({ ok: true, nextFeedbackId: nextId });
+      if (url.endsWith(nextId)) return Response.json({ ...detail, item: { ...detail.item, id: nextId, nickname: "下一条测试昵称" } });
+      return original(input, init);
+    });
+    vi.stubGlobal("scrollTo", vi.fn());
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={[`/studio/feedback/${feedbackId}?view=unreplied&topic=appeal`]}>
+        <Routes><Route element={<Outlet context={{ liveMode: false }} />}>
+          <Route path="/studio/feedback/:feedbackId" element={<FeedbackDetailPage />} />
+        </Route></Routes>
+      </MemoryRouter>,
+    );
+    await screen.findByText("测试昵称");
+    expect(screen.queryByRole("button", { name: "下一条留言" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "留言回复" }));
+    await user.type(screen.getByRole("textbox", { name: "回复内容" }), "处理完成");
+    await user.click(screen.getByRole("button", { name: "提交" }));
+    await user.click(screen.getByRole("button", { name: "确认提交" }));
+    await user.click(await screen.findByRole("button", { name: "下一条留言" }));
+    await screen.findByText("下一条测试昵称");
+    const navigationCall = fetchMock.mock.calls.find(([input]) => String(input).includes("/next?"));
+    expect(String(navigationCall?.[0])).toContain("view=unreplied");
+    expect(String(navigationCall?.[0])).toContain("topic=appeal");
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
 
   it("shows only identity, message and images in live mode, even when replies exist", async () => {

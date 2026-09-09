@@ -1,6 +1,8 @@
 import {
   ArrowLeft,
+  ArrowRight,
   ChatCircleText,
+  CheckCircle,
   Clock,
   Eye,
   ImageSquare,
@@ -13,7 +15,7 @@ import { Link, useLocation, useNavigate, useOutletContext, useParams } from "rea
 import { Button } from "../../../components/Button";
 import { createRandomUuid } from "../../../lib/random-id";
 import { TOPIC_LABELS, TOPIC_VALUES, type Topic } from "../../../shared/contracts";
-import type { StudioFeedbackDetail, StudioReplyType } from "../../../shared/studio-contracts";
+import { studioFeedbackViewSchema, type StudioFeedbackDetail, type StudioReplyType } from "../../../shared/studio-contracts";
 import {
   createStudioReply,
   getNextStudioFeedback,
@@ -66,6 +68,7 @@ export function FeedbackDetailPage() {
   const [replyContent, setReplyContent] = useState("");
   const [replyError, setReplyError] = useState<string | null>(null);
   const [replyPending, setReplyPending] = useState(false);
+  const [replySubmitted, setReplySubmitted] = useState(false);
   const [moderationNotice, setModerationNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [moderationBusy, setModerationBusy] = useState(false);
@@ -87,6 +90,7 @@ export function FeedbackDetailPage() {
       currentFeedbackRef.current = feedbackId;
       replyAttemptRef.current = null;
       setReplyPending(false);
+      setReplySubmitted(false);
       setAtStart(false);
       setAtEnd(false);
       setLiveNotice(null);
@@ -214,6 +218,7 @@ export function FeedbackDetailPage() {
     try {
       const value = await createStudioReply(attempt.feedbackId, attempt.content, attempt.replyType, attempt.requestKey);
       applyReply(value);
+      setReplySubmitted(true);
       replyAttemptRef.current = null;
       setReplyPending(false);
       setReplyContent("");
@@ -277,7 +282,8 @@ export function FeedbackDetailPage() {
     setLiveNotice(direction === "previous" ? "正在切换到上一条留言…" : "正在切换到下一条留言…");
     try {
       const query = new URLSearchParams(location.search);
-      const view = query.get("view") === "todo" ? "todo" : "unreplied";
+      const parsedView = studioFeedbackViewSchema.safeParse(query.get("view"));
+      const view = parsedView.success ? parsedView.data : "unreplied";
       const topicValue = query.get("topic");
       const topic = topicValue && TOPIC_VALUES.includes(topicValue as Topic)
         ? topicValue as Topic
@@ -290,7 +296,8 @@ export function FeedbackDetailPage() {
         setLiveNotice(direction === "previous" ? "已经是第一条留言了" : "已经是最后一条留言了");
         return;
       }
-      const nextQuery = new URLSearchParams({ mode: "live", view });
+      const nextQuery = new URLSearchParams({ view });
+      if (liveMode) nextQuery.set("mode", "live");
       if (topic) nextQuery.set("topic", topic);
       navigate(`/studio/feedback/${encodeURIComponent(adjacent.nextFeedbackId)}?${nextQuery}`, {
         replace: true,
@@ -304,7 +311,7 @@ export function FeedbackDetailPage() {
       actionRef.current = false;
       setNavigationDirection(null);
     }
-  }, [atEnd, atStart, item, location.search, navigate, returnContext]);
+  }, [atEnd, atStart, item, liveMode, location.search, navigate, returnContext]);
 
   useEffect(() => {
     if (!liveMode || lightboxIndex !== null) return;
@@ -340,6 +347,7 @@ export function FeedbackDetailPage() {
   const replies = [...item.replies].sort((left, right) => left.createdAt - right.createdAt);
   const fullPhone = !liveMode && revealedPhone && revealedPhone.userId === item.userId ? revealedPhone.phone : null;
   const currentDetailUrl = `${location.pathname}${location.search}`;
+  const hasSequenceContext = studioFeedbackViewSchema.safeParse(new URLSearchParams(location.search).get("view")).success;
 
   if (liveMode) {
     const contentDensity = item.content.length > 900
@@ -520,7 +528,7 @@ export function FeedbackDetailPage() {
           <legend>回复方式</legend>
           {(["live", "message"] as const).map((type) => (
             <label key={type}>
-              <input type="radio" name="reply-type" value={type} checked={replyType === type} onChange={() => setReplyType(type)} />
+              <input type="radio" name="reply-type" value={type} checked={replyType === type} onChange={() => { setReplyType(type); setReplySubmitted(false); }} />
               <span>{type === "live" ? "直播回复" : "留言回复"}</span>
             </label>
           ))}
@@ -539,13 +547,35 @@ export function FeedbackDetailPage() {
           onChange={(event) => {
             setReplyContent(event.target.value);
             setReplyError(null);
+            setReplySubmitted(false);
           }}
         />
         {replyError && <p id="studio-reply-error" className="studio-field-error" role="alert">{replyError}</p>}
         {replyPending && !submitting && !navigationBusy && <p role="status">尚未确认回复是否保存，请重试提交。确认前会保留原回复内容。</p>}
+        {replySubmitted && (
+          <p className="studio-reply-success" role="status">
+            <CheckCircle aria-hidden="true" weight="fill" />
+            {hasSequenceContext
+              ? atEnd ? "回复已提交，这已经是当前列表最后一条留言。" : "回复已提交，可以继续处理下一条留言。"
+              : "回复已提交。"}
+          </p>
+        )}
         <div className="studio-detail-actions">
           <Button type="button" variant="quiet" icon={<ArrowLeft aria-hidden="true" />} onClick={goBack}>返回</Button>
-          <Button type="button" loading={submitting} loadingLabel="正在提交" icon={<PaperPlaneTilt aria-hidden="true" weight="fill" />} onClick={requestSubmit}>提交</Button>
+          {replySubmitted && hasSequenceContext ? (
+            <Button
+              type="button"
+              loading={navigationDirection === "next"}
+              loadingLabel="正在打开下一条"
+              disabled={atEnd || navigationBusy}
+              icon={<ArrowRight aria-hidden="true" weight="bold" />}
+              onClick={() => void goAdjacent("next")}
+            >
+              {atEnd ? "已经是最后一条" : "下一条留言"}
+            </Button>
+          ) : (
+            <Button type="button" loading={submitting} loadingLabel="正在提交" icon={<PaperPlaneTilt aria-hidden="true" weight="fill" />} onClick={requestSubmit}>提交</Button>
+          )}
         </div>
       </section>
 

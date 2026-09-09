@@ -223,11 +223,7 @@ export function FeedbackListPage({ view }: { view: StudioFeedbackView }) {
               liveMode={liveMode}
               todoBusy={todoBusy === item.id}
               onTodoChange={(selected) => void toggleTodo(selected)}
-              liveContext={
-                view === "unreplied" || view === "todo"
-                  ? { view, topic }
-                  : undefined
-              }
+              listContext={{ view, topic }}
               returnContext={captureReturnContext(
                 currentUrl,
                 item.id,

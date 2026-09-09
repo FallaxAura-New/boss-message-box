@@ -1,7 +1,7 @@
 import { BookmarkSimple, ChatCircleText, Clock, ImageSquare, UserCircle } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 import { TOPIC_LABELS } from "../../../shared/contracts";
-import type { StudioFeedbackSummary } from "../../../shared/studio-contracts";
+import type { StudioFeedbackSummary, StudioFeedbackView } from "../../../shared/studio-contracts";
 import type { Topic } from "../../../shared/contracts";
 import type { StudioReturnContext } from "../navigation-context";
 
@@ -22,7 +22,7 @@ interface FeedbackCardProps {
   showTodoAction?: boolean;
   todoBusy?: boolean;
   onTodoChange: (item: StudioFeedbackSummary) => void;
-  liveContext?: { view: "unreplied" | "todo"; topic: Topic | null };
+  listContext?: { view: StudioFeedbackView; topic: Topic | null };
 }
 
 export function FeedbackCard({
@@ -32,13 +32,13 @@ export function FeedbackCard({
   showTodoAction = true,
   todoBusy = false,
   onTodoChange,
-  liveContext,
+  listContext,
 }: FeedbackCardProps) {
   const detailQuery = new URLSearchParams();
   if (liveMode) detailQuery.set("mode", "live");
-  if (liveMode && liveContext) {
-    detailQuery.set("view", liveContext.view);
-    if (liveContext.topic) detailQuery.set("topic", liveContext.topic);
+  if (listContext) {
+    detailQuery.set("view", listContext.view);
+    if (listContext.topic) detailQuery.set("topic", listContext.topic);
   }
   const detailUrl = `/studio/feedback/${encodeURIComponent(item.id)}${detailQuery.size ? `?${detailQuery}` : ""}`;
   const title = item.topic === "other" ? item.customTopic : TOPIC_LABELS[item.topic];

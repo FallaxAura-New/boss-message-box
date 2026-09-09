@@ -81,7 +81,7 @@ function markdown(items: StudioFeedbackDetail[], options: FeedbackExportOptions)
   return lines.join("\n");
 }
 
-function addTextTable(sheet: Worksheet, headers: [string, number][], rows: (string | number)[][]): void {
+function addTextTable(sheet: Worksheet, headers: [string, number][], rows: (string | number | null)[][]): void {
   sheet.columns = headers.map(([header, width]) => ({ header, width }));
   sheet.views = [{ state: "frozen", ySplit: 1 }];
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, rows.length + 1), column: headers.length } };
@@ -112,23 +112,24 @@ export async function buildFeedbackExport(
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Studio";
   workbook.created = new Date(options.exportedAt);
-  addTextTable(workbook.addWorksheet("留言"), [
+  addTextTable(workbook.addWorksheet("留言与回复"), [
     ["编号", 16], ["完整 ID", 40], ["抖音昵称", 24], ["张导小店绑定手机号", 26], ["主题", 28], ["留言全文", 80],
     ["提交时间（UTC+8）", 30], ["状态", 12], ["待办", 10], ["审核状态", 14], ["审核分类", 16], ["审核原因", 48],
     ["回复数量", 12], ["图片数量", 12], ["最近回复人", 20], ["用户 ID", 40], ["Studio 详情链接", 65],
-  ], items.map((item) => [
-    item.feedbackNumber, item.id, item.nickname, shopPhone(item), topic(item), item.content, timestamp(item.createdAt),
-    STATUS_LABELS[item.status], item.isTodo ? "是" : "否", MODERATION_LABELS[item.moderationStatus],
-    item.moderationCategory ? CATEGORY_LABELS[item.moderationCategory] : "", item.moderationReason ?? "",
-    item.replies.length, item.images.length, item.latestReplyAdmin ?? "", item.userId ?? "", detailLink(item, options.origin),
-  ]));
-  addTextTable(workbook.addWorksheet("回复"), [
-    ["留言编号", 16], ["留言完整 ID", 40], ["回复 ID", 40], ["回复类型", 14], ["回复人", 20],
-    ["回复时间（UTC+8）", 30], ["回复全文", 80],
-  ], items.flatMap((item) => item.replies.map((reply) => [
-    item.feedbackNumber, item.id, reply.id, reply.replyType === "live" ? "直播回复" : "文字回复",
-    reply.adminUsername ?? "", timestamp(reply.createdAt), reply.content,
-  ])));
+    ["回复序号", 12], ["回复 ID", 40], ["回复类型", 14], ["回复人", 20], ["回复时间（UTC+8）", 30], ["回复全文", 80],
+  ], items.flatMap((item) => {
+    const feedbackValues = [
+      item.feedbackNumber, item.id, item.nickname, shopPhone(item), topic(item), item.content, timestamp(item.createdAt),
+      STATUS_LABELS[item.status], item.isTodo ? "是" : "否", MODERATION_LABELS[item.moderationStatus],
+      item.moderationCategory ? CATEGORY_LABELS[item.moderationCategory] : "", item.moderationReason ?? "",
+      item.replies.length, item.images.length, item.latestReplyAdmin ?? "", item.userId ?? "", detailLink(item, options.origin),
+    ];
+    if (!item.replies.length) return [[...feedbackValues, null, null, null, null, null, null]];
+    return item.replies.map((reply, index) => [
+      ...feedbackValues, index + 1, reply.id, reply.replyType === "live" ? "直播回复" : "文字回复",
+      reply.adminUsername ?? "", timestamp(reply.createdAt), reply.content,
+    ]);
+  }));
   addTextTable(workbook.addWorksheet("图片"), [
     ["留言编号", 16], ["留言完整 ID", 40], ["图片 ID", 40], ["格式", 16], ["大小（字节）", 16],
     ["宽度", 12], ["高度", 12], ["查看链接（需登录 Studio）", 65], ["下载链接（需登录 Studio）", 65],
@@ -139,6 +140,7 @@ export async function buildFeedbackExport(
   addTextTable(workbook.addWorksheet("导出说明"), [["项目", 24], ["说明", 90]], [
     ["导出范围", options.scopeLabel], ["导出时间", timestamp(options.exportedAt)], ["留言数量", items.length],
     ["图片说明", IMAGE_NOTICE], ["格式说明", "数量、图片字节大小和宽高按数字保存，可直接统计；编号、手机号和用户输入按文本保存，保留前导 0 和 +，不会作为公式执行。"],
+    ["留言与回复", "每条回复占一行，同一留言的字段会随回复重复；没有回复的留言保留一行，回复字段为空。"],
   ]);
   const buffer = await workbook.xlsx.writeBuffer();
   // Copy into an ordinary ArrayBuffer for browser Blob compatibility.

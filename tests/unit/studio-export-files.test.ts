@@ -41,8 +41,8 @@ describe("Studio feedback export serialization", () => {
     const blob = await buildFeedbackExport([item, fixture({ id: "second-id", shopPhone: "001234" })], "xlsx", options);
     expect(blob.type).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     const workbook = await readWorkbook(blob);
-    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["留言", "回复", "图片", "导出说明"]);
-    const feedback = workbook.getWorksheet("留言")!;
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["留言与回复", "图片", "导出说明"]);
+    const feedback = workbook.getWorksheet("留言与回复")!;
     expect(feedback.getCell("A2").value).toBe("000023");
     expect(feedback.getCell("B2").value).toBe(item.id);
     expect(feedback.getCell("C2").value).toBe(item.nickname);
@@ -59,10 +59,14 @@ describe("Studio feedback export serialization", () => {
       expect(feedback.getCell(address).numFmt).toBe("0");
     }
     expect(feedback.getCell("Q2").value).toBe(`${options.origin}/studio/feedback/${item.id}`);
+    expect(feedback.getCell("R2").value).toBe(1);
+    expect(feedback.getCell("R2").numFmt).toBe("0");
+    expect(feedback.getCell("S2").value).toBe(item.replies[0]!.id);
+    expect(feedback.getCell("W2").value).toBe(item.replies[0]!.content);
+    expect(feedback.getCell("W2").type).toBe(ExcelJS.ValueType.String);
     expect(feedback.views[0]).toMatchObject({ state: "frozen", ySplit: 1 });
-    expect(feedback.autoFilter).toBe("A1:Q3");
-    expect(workbook.getWorksheet("回复")!.getCell("G2").value).toBe(item.replies[0]!.content);
-    expect(workbook.getWorksheet("回复")!.getCell("G2").type).toBe(ExcelJS.ValueType.String);
+    expect(feedback.autoFilter).toBe("A1:W3");
+    expect(workbook.getWorksheet("回复")).toBeUndefined();
     expect(workbook.getWorksheet("图片")!.getCell("H2").value).toBe(`${options.origin}${item.images[0]!.viewUrl}`);
     for (const [address, value] of [["E2", 321], ["F2", 640], ["G2", 480]] as const) {
       const cell = workbook.getWorksheet("图片")!.getCell(address);
@@ -80,9 +84,24 @@ describe("Studio feedback export serialization", () => {
       id: `reply-${index}`, replyType: "live" as const, content: "中".repeat(2000), adminUsername: null, createdAt: options.exportedAt,
     }));
     const workbook = await readWorkbook(await buildFeedbackExport([fixture({ replies })], "xlsx", options));
-    expect(workbook.getWorksheet("回复")!.rowCount).toBe(21);
-    expect(workbook.getWorksheet("回复")!.getCell("G21").value).toBe("中".repeat(2000));
-    expect(workbook.getWorksheet("留言")!.getCell("M2").value).toBe(20);
+    const combined = workbook.getWorksheet("留言与回复")!;
+    expect(combined.rowCount).toBe(21);
+    expect(combined.getCell("A21").value).toBe("000023");
+    expect(combined.getCell("B21").value).toBe(fixture().id);
+    expect(combined.getCell("M2").value).toBe(20);
+    expect(combined.getCell("R21").value).toBe(20);
+    expect(combined.getCell("W21").value).toBe("中".repeat(2000));
+  });
+
+  it("keeps feedback without replies as one row with empty reply fields", async () => {
+    const workbook = await readWorkbook(await buildFeedbackExport([
+      fixture({ status: "unreplied", replies: [], replyCount: 0, latestReplyAdmin: null }),
+    ], "xlsx", options));
+    const combined = workbook.getWorksheet("留言与回复")!;
+    expect(combined.rowCount).toBe(2);
+    expect(combined.getCell("A2").value).toBe("000023");
+    expect(combined.getCell("M2").value).toBe(0);
+    for (const column of ["R", "S", "T", "U", "V", "W"]) expect(combined.getCell(`${column}2`).value).toBeNull();
   });
 
   it("exports Markdown with all content and replies while escaping user HTML and Markdown", async () => {
@@ -117,7 +136,7 @@ describe("Studio feedback export serialization", () => {
 
   it("supports an empty result set and absent optional phone", async () => {
     const workbook = await readWorkbook(await buildFeedbackExport([], "xlsx", options));
-    for (const name of ["留言", "回复", "图片"]) expect(workbook.getWorksheet(name)!.rowCount).toBe(1);
+    for (const name of ["留言与回复", "图片"]) expect(workbook.getWorksheet(name)!.rowCount).toBe(1);
     expect(workbook.getWorksheet("导出说明")!.getCell("B4").value).toBe(0);
     const emptyMarkdown = new TextDecoder().decode(await readBlob(await buildFeedbackExport([], "md", options)));
     expect(emptyMarkdown).toContain("留言数量：0");

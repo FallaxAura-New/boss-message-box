@@ -5,6 +5,7 @@ async function mockStudio(page) {
   let authenticated = false;
   let mode = "normal";
   const item = { id: "11111111-1111-4111-8111-111111111111", feedbackNumber: "11111111", userId: null, nickname: "界面测试", topic: "released_hardware", customTopic: null, content: "测试留言", contentPreview: "测试留言", imageCount: 0, images: [], maskedPhone: null, createdAt: 1000, status: "unreplied", isTodo: false, replyCount: 0, latestReplyAdmin: null, replies: [], moderationStatus: "kept", moderationCategory: "valid_feedback", moderationReason: null };
+  const nextItem = { ...item, id: "22222222-2222-4222-8222-222222222222", feedbackNumber: "22222222", nickname: "下一条界面测试", createdAt: 900 };
   await page.route("**/api/config", (route) => route.fulfill({ json: { turnstileSiteKey: "1x00000000000000000000AA", privacyPolicyVersion: "2026-09-05", livestreamPolicyVersion: "2026-09-05" } }));
   await page.route("**/api/studio/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -16,8 +17,10 @@ async function mockStudio(page) {
     if (path.endsWith("/stats")) return route.fulfill({ json: { ok: true, todayFeedback: 1, unreplied: 1, todo: 0, todayReplied: 0 } });
     if (path.endsWith("/new-feedback-count")) return route.fulfill({ json: { ok: true, count: 0 } });
     if (path.endsWith("/feedbacks")) return route.fulfill({ json: { ok: true, items: [item], pagination: { page: 1, pageSize: 30, total: 1, totalPages: 1 }, snapshot: { createdAt: item.createdAt, id: item.id } } });
-    if (path.endsWith("/next")) return route.fulfill({ json: { ok: true, nextFeedbackId: null } });
+    if (path.endsWith("/replies") && route.request().method() === "POST") return route.fulfill({ json: { ok: true, reply: { id: "33333333-3333-4333-8333-333333333333", replyType: route.request().postDataJSON().replyType, content: route.request().postDataJSON().content, adminUsername: "测试管理员", createdAt: 1100 }, status: "replied", isTodo: false, replyCount: 1, latestReplyAdmin: "测试管理员" } });
+    if (path.endsWith("/next")) return route.fulfill({ json: { ok: true, nextFeedbackId: path.includes(item.id) ? nextItem.id : null } });
     if (path.endsWith(`/feedbacks/${item.id}`)) return route.fulfill({ json: { ok: true, item } });
+    if (path.endsWith(`/feedbacks/${nextItem.id}`)) return route.fulfill({ json: { ok: true, item: nextItem } });
     return route.fulfill({ status: 404, json: { ok: false, error: { message: "未配置的测试请求" } } });
   });
 }
@@ -26,6 +29,7 @@ const browser = await chromium.launch({
   headless: true,
   executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? (existsSync("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome") ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : undefined),
 });
+const baseUrl = process.env.VISUAL_BASE_URL ?? "http://127.0.0.1:5173";
 const results = [];
 
 try {
@@ -59,7 +63,7 @@ try {
         body: "window.turnstile={render:()=>1,execute:()=>{},reset:()=>{},remove:()=>{}};",
       }),
     );
-    await page.goto("http://127.0.0.1:5173/", { waitUntil: "networkidle" });
+    await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "想说什么，直接写下来" }).waitFor();
     const dimensions = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
@@ -80,7 +84,7 @@ try {
     await page.screenshot({ path: `/private/tmp/boss-message-box-policy-${viewport.name}.png` });
     await policyAction.click();
 
-    await page.goto("http://127.0.0.1:5173/my", { waitUntil: "networkidle" });
+    await page.goto(`${baseUrl}/my`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "查看我的留言" }).waitFor();
     const historyDimensions = await page.evaluate(() => ({
       viewport: document.documentElement.clientWidth,
@@ -91,7 +95,7 @@ try {
     }
     await page.screenshot({ path: `/private/tmp/boss-message-box-history-${viewport.name}.png`, fullPage: true });
 
-    await page.goto("http://127.0.0.1:5173/studio", { waitUntil: "networkidle" });
+    await page.goto(`${baseUrl}/studio`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "登录 Studio" }).waitFor();
     await page.getByLabel("账号").fill("zd");
     await page.getByLabel("密码").fill("visual-test-password");
@@ -110,14 +114,27 @@ try {
     }
     await page.screenshot({ path: `/private/tmp/boss-message-box-studio-${viewport.name}.png`, fullPage: true });
 
-    if (viewport.name === "desktop" && await page.locator(".studio-feedback-card-main").count()) {
+    if (await page.locator(".studio-feedback-card-main").count()) {
       await page.locator(".studio-feedback-card-main").first().click();
       await page.getByRole("heading", { name: "已发布硬件" }).waitFor();
       const detailOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
       if (detailOverflow) failures.push("studio detail has horizontal overflow");
-      await page.screenshot({ path: "/private/tmp/boss-message-box-studio-detail-desktop.png", fullPage: true });
+      await page.locator(".studio-reply-types label", { hasText: "留言回复" }).click();
+      await page.getByRole("textbox", { name: "回复内容" }).fill("视觉验收回复");
+      await page.getByRole("button", { name: "提交", exact: true }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "确认提交" }).click();
+      await page.getByRole("status").filter({ hasText: "回复已提交" }).waitFor();
+      const nextAction = page.getByRole("button", { name: "下一条留言" });
+      await nextAction.waitFor();
+      await page.screenshot({ path: `/private/tmp/boss-message-box-studio-reply-success-${viewport.name}.png`, fullPage: true });
+      await nextAction.click();
+      await page.getByText("下一条界面测试", { exact: true }).waitFor();
+      if (!page.url().includes("view=unreplied")) failures.push("next feedback lost its source list context");
       await page.locator(".studio-back-button").click();
       await page.getByRole("heading", { name: "未回复留言" }).waitFor();
+    }
+
+    if (viewport.name === "desktop") {
       await page.locator(".studio-live-toggle:visible").click();
       await page.getByRole("button", { name: "退出直播模式" }).waitFor();
       if (await page.locator(".studio-search:visible").count()) failures.push("Studio search remains visible in live mode");
@@ -128,12 +145,12 @@ try {
       await page.getByRole("heading", { name: "未回复留言" }).waitFor();
     }
 
-    await page.goto("http://127.0.0.1:5173/studio/password", { waitUntil: "networkidle" });
+    await page.goto(`${baseUrl}/studio/password`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "修改密码" }).waitFor();
     const passwordOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     if (passwordOverflow) failures.push("password form has horizontal overflow");
     await page.screenshot({ path: `/private/tmp/boss-message-box-password-${viewport.name}.png`, fullPage: true });
-    await page.goto("http://127.0.0.1:5173/studio/unreplied", { waitUntil: "networkidle" });
+    await page.goto(`${baseUrl}/studio/unreplied`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "未回复留言" }).waitFor();
 
     if (viewport.width < 1024) {
@@ -171,7 +188,7 @@ try {
       body: "window.turnstile={render:()=>1,execute:()=>{},reset:()=>{},remove:()=>{}};",
     }),
   );
-  await page.goto("http://127.0.0.1:5173/", { waitUntil: "networkidle" });
+  await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
   await page.getByRole("combobox", { name: /留言主题/ }).selectOption("other");
   await page.getByRole("textbox", { name: /请填写留言主题/ }).fill("试用建议");
   await page.getByRole("textbox", { name: /留言内容/ }).fill("希望直播中讲一下设置方法。");

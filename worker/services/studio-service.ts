@@ -166,13 +166,13 @@ export class StudioService {
 
   async nextFeedback(input: {
     feedbackId: string;
-    view: "unreplied" | "todo";
+    view: StudioFeedbackView;
     topic: Topic | null;
     direction: "previous" | "next";
     session: StudioSessionRecord;
   }): Promise<StudioNextFeedbackSuccess> {
-    if (input.session.mode !== "live") {
-      throw new PublicError(403, "FORBIDDEN", "留言切换仅用于直播展示模式");
+    if (input.session.mode === "live" && input.view !== "unreplied" && input.view !== "todo") {
+      throw new PublicError(403, "FORBIDDEN", "直播展示模式只能切换未回复或待办留言");
     }
     return {
       ok: true,
