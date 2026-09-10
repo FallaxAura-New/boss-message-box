@@ -11,7 +11,7 @@ import {
   SquaresFour,
   X,
 } from "@phosphor-icons/react";
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { captureReturnContext, clearLiveReturn, loadLiveReturn, saveLiveReturn } from "../navigation-context";
 import { useStudioSession } from "../use-studio-session";
@@ -19,6 +19,8 @@ import { StudioLoading } from "./AsyncState";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { LiveBackdropControl } from "./LiveBackdropControl";
 import { loadLiveBackdrop, saveLiveBackdrop, type LiveBackdrop } from "../live-backdrop";
+import { LIVE_CHROME_IDLE_MS, loadLiveChrome, saveLiveChrome } from "../live-chrome";
+import { resetLiveSequence } from "../live-sequence";
 
 export interface StudioOutletContext {
   liveMode: boolean;
@@ -90,17 +92,81 @@ export function StudioShell() {
   const [modeError, setModeError] = useState<string | null>(null);
   const [liveBackdrop, setLiveBackdrop] = useState(loadLiveBackdrop);
   const [backdropSaved, setBackdropSaved] = useState(true);
+  const [liveChrome, setLiveChrome] = useState(loadLiveChrome);
+  const [chromeVisible, setChromeVisible] = useState(true);
   const mobileNavRef = useRef<HTMLDetailsElement>(null);
   const modeActionRef = useRef(false);
   const modeDestinationRef = useRef<string | null>(null);
+  const liveExitRef = useRef(false);
+  const chromeTimerRef = useRef<number | null>(null);
   const liveRequested = searchParams.get("mode") === "live";
   const liveMode = liveRequested || mode === "live";
   const liveModeReady = !liveRequested || mode === "live";
   const liveEntryAvailable =
     location.pathname === "/studio/unreplied" || location.pathname === "/studio/todo";
+  const chromeHidden = liveMode && !liveChrome.pinned && !chromeVisible;
+
+  const scheduleChromeHide = useCallback(() => {
+    if (chromeTimerRef.current !== null) window.clearTimeout(chromeTimerRef.current);
+    chromeTimerRef.current = window.setTimeout(() => setChromeVisible(false), LIVE_CHROME_IDLE_MS);
+  }, []);
+
+  const keepChromeVisible = useCallback(() => {
+    setChromeVisible(true);
+    scheduleChromeHide();
+  }, [scheduleChromeHide]);
+
+  /**
+   * The control cluster sits inside the picture, so leaving it up means the capture stream
+   * shows "画面 / 全屏 / 退出" over the message. It fades out when idle and comes back on any
+   * pointer activity or key press — except the arrow keys, which drive the sequence and must
+   * not flash the controls into the stream on every message change.
+   */
+  useEffect(() => {
+    if (!liveMode || liveChrome.pinned) {
+      if (chromeTimerRef.current !== null) {
+        window.clearTimeout(chromeTimerRef.current);
+        chromeTimerRef.current = null;
+      }
+      return undefined;
+    }
+    scheduleChromeHide();
+    const reveal = () => keepChromeVisible();
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") return;
+      keepChromeVisible();
+    };
+    window.addEventListener("pointermove", reveal, { passive: true });
+    window.addEventListener("pointerdown", reveal, { passive: true });
+    window.addEventListener("wheel", reveal, { passive: true });
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointermove", reveal);
+      window.removeEventListener("pointerdown", reveal);
+      window.removeEventListener("wheel", reveal);
+      window.removeEventListener("keydown", onKeyDown);
+      if (chromeTimerRef.current !== null) {
+        window.clearTimeout(chromeTimerRef.current);
+        chromeTimerRef.current = null;
+      }
+    };
+  }, [keepChromeVisible, liveChrome.pinned, liveMode, scheduleChromeHide]);
+
+  // The warmed sequence holds message text and image blobs; it must not outlive live mode.
+  useEffect(() => {
+    if (liveMode) return;
+    resetLiveSequence();
+  }, [liveMode]);
 
   useEffect(() => {
     if (modeActionRef.current) return;
+    // Leaving live mode happens in two steps: navigate away, then flip the server-side mode.
+    // Without this guard the effect re-adds ?mode=live during that gap, and the branch below
+    // then flips the session straight back into live mode.
+    if (liveExitRef.current) {
+      if (mode === "normal") liveExitRef.current = false;
+      return;
+    }
     // Router navigation may commit after the session update. Do not rewrite the old route.
     if (modeDestinationRef.current) {
       if (location.pathname !== modeDestinationRef.current) return;
@@ -126,6 +192,9 @@ export function StudioShell() {
   }, [liveRequested, location.pathname, locationState, mode, searchParams, setMode, setSearchParams]);
 
   const enterLiveMode = async () => {
+    setChromeVisible(true);
+    // Entering explicitly supersedes any exit that is still settling.
+    liveExitRef.current = false;
     const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-feedback-id]"));
     const anchor = cards
       .map((element) => ({ element, distance: Math.abs(element.getBoundingClientRect().top) }))
@@ -170,9 +239,11 @@ export function StudioShell() {
   };
 
   const exitLiveMode = async () => {
+    setChromeVisible(true);
     setModeBusy(true);
     setModeError(null);
     modeActionRef.current = true;
+    liveExitRef.current = true;
     const returnContext = loadLiveReturn();
     const destination = withoutLiveMode(returnContext?.url ?? "/studio/unreplied");
     try {
@@ -184,6 +255,8 @@ export function StudioShell() {
       await setMode("normal");
       clearLiveReturn();
     } catch (error) {
+      // The session never flipped, so the URL has to keep tracking live mode.
+      liveExitRef.current = false;
       setModeError(error instanceof Error ? error.message : "无法退出直播模式");
     } finally {
       modeActionRef.current = false;
@@ -204,6 +277,7 @@ export function StudioShell() {
     try {
       await logout();
       clearLiveReturn();
+      resetLiveSequence();
       navigate("/studio/login", { replace: true });
     } finally {
       setLogoutBusy(false);
@@ -216,9 +290,21 @@ export function StudioShell() {
     setBackdropSaved(saveLiveBackdrop(value));
   };
 
+  const changeChromePinned = (pinned: boolean) => {
+    setLiveChrome({ pinned });
+    setChromeVisible(true);
+    setBackdropSaved(saveLiveChrome({ pinned }));
+  };
+
   const liveActions: ReactNode = liveMode ? (
     <div className="studio-live-actions">
-      <LiveBackdropControl value={liveBackdrop} saved={backdropSaved} onChange={changeLiveBackdrop} />
+      <LiveBackdropControl
+        value={liveBackdrop}
+        saved={backdropSaved}
+        onChange={changeLiveBackdrop}
+        chromePinned={liveChrome.pinned}
+        onChromePinnedChange={changeChromePinned}
+      />
       <button
         type="button"
         className="studio-live-action"
@@ -243,6 +329,7 @@ export function StudioShell() {
     <div
       className="studio-shell"
       data-mode={liveMode ? "live" : "normal"}
+      data-chrome={liveMode ? (chromeHidden ? "hidden" : "visible") : undefined}
       data-chroma={liveMode && liveBackdrop.enabled ? "true" : undefined}
       style={liveMode && liveBackdrop.enabled ? { "--live-canvas": liveBackdrop.color } as CSSProperties : undefined}
     >
@@ -284,7 +371,7 @@ export function StudioShell() {
       </header>
 
       <div className="studio-workspace">
-        <header className="studio-toolbar">
+        <header className="studio-toolbar" onFocusCapture={keepChromeVisible}>
           <form className="studio-search" role="search" onSubmit={submitSearch}>
             <MagnifyingGlass aria-hidden="true" />
             <label className="sr-only" htmlFor="studio-search">搜索抖音昵称或留言编号</label>

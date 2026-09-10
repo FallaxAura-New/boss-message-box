@@ -1,8 +1,12 @@
 const colors = {
   liveBg: "#0e171c",
   livePanel: "#19252b",
+  livePlate: "#1d2a31",
+  livePlateDeep: "#141f25",
   livePaper: "#eee8dc",
   liveBrass: "#cfb78b",
+  liveBrassLight: "#e7d8b5",
+  liveBrassDeep: "#9a7f4c",
   liveCoral: "#ff6570",
   liveMuted: "#a8b4b7",
   liveEmblem: "#512f36",
@@ -73,11 +77,14 @@ function contrast(foreground, background) {
 }
 
 const checks = [
-  ["直播昵称 / 标题条", "liveBrass", "liveIdentity", 4.5],
+  ["直播昵称最亮端 / 标题条", "liveBrassLight", "liveIdentity", 4.5],
+  ["直播昵称最暗端 / 标题条", "liveBrass", "liveIdentity", 4.5],
   ["直播主题 / 标题条", "liveMuted", "liveIdentity", 4.5],
   ["直播辅助文字 / 面板", "liveMuted", "livePanel", 4.5],
   ["直播错误 / 面板", "danger", "livePanel", 4.5],
   ["直播正文 / 留言表面", "livePaper", "livePanel", 4.5],
+  ["直播正文 / 留言表面凹层", "livePaper", "livePlateDeep", 4.5],
+  ["直播黄铜装饰 / 面板（非文本 3:1）", "liveBrassDeep", "livePlate", 3],
   ["正文 / 页面", "text", "bg", 4.5],
   ["次级文字 / 页面", "textSecondary", "bg", 4.5],
   ["弱化文字 / 表单面板", "textMuted", "surface", 4.5],

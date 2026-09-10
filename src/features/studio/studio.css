@@ -226,6 +226,17 @@
 .studio-live-action > svg { width: 1rem; height: 1rem; }
 .studio-live-exit { box-shadow: none; }
 
+/*
+ * The cluster sits inside the picture, so it is captured along with the message. It fades
+ * out when idle and returns on pointer activity or a key press; only the buttons hide, so
+ * the settings dialog inside the same container stays readable while it is open.
+ */
+.studio-shell[data-chrome="hidden"] .studio-live-actions > .studio-live-action {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-0.75rem);
+}
+
 .studio-live-backdrop-dialog {
   position: fixed;
   inset: max(4.5rem, env(safe-area-inset-top)) max(var(--space-4), env(safe-area-inset-right)) auto auto;
@@ -264,6 +275,10 @@
 .studio-live-backdrop-color output { font-family: var(--font-mono); }
 .studio-live-backdrop-dialog footer button:last-child { background: var(--live-brass); color: var(--live-bg); }
 .studio-live-backdrop-dialog footer button:last-child:hover { background: var(--live-paper); }
+.studio-live-settings-group { display: grid; gap: var(--space-3); }
+.studio-live-settings-group + .studio-live-settings-group { padding-block-start: var(--space-4); border-block-start: 1px solid var(--live-edge); }
+.studio-live-settings-group h3 { color: var(--live-brass); font-size: var(--type-body-sm); font-weight: 760; letter-spacing: 0.06em; }
+.studio-live-settings-group p { color: var(--live-muted); font-size: var(--type-caption); line-height: 1.5; }
 
 .studio-mode-note,
 .studio-mode-error {
@@ -564,11 +579,15 @@
   background: var(--live-canvas);
 }
 
+/* Atmosphere only. It is switched off under chroma key, where the canvas has to stay one flat colour. */
 .studio-live-stage::before {
   position: absolute;
   z-index: -2;
   inset: 0;
-  background: linear-gradient(115deg, var(--live-recess), transparent 60%);
+  background:
+    radial-gradient(58% 42% at 76% -6%, rgb(207 183 139 / 0.07), transparent 72%),
+    radial-gradient(120% 96% at 50% 46%, transparent 42%, rgb(0 0 0 / 0.42)),
+    linear-gradient(115deg, var(--live-recess), transparent 60%);
   content: "";
   pointer-events: none;
 }
@@ -593,19 +612,39 @@
   max-width: calc(100% - clamp(var(--space-3), 2vw, var(--space-8)));
   gap: clamp(var(--space-3), 2vw, var(--space-5));
   margin-inline-start: clamp(var(--space-3), 2vw, var(--space-8));
-  padding: var(--space-4) clamp(var(--space-5), 3vw, var(--space-8));
-  background: var(--live-recess);
-  background: color-mix(in srgb, var(--live-emblem) 45%, var(--live-bg));
+  padding: var(--space-4) clamp(var(--space-5), 3vw, var(--space-8)) var(--space-4) calc(clamp(var(--space-5), 3vw, var(--space-8)) + 0.375rem);
+  background-color: var(--live-recess);
+  /* Brushed, top-lit flag plate: matte grain plus a one-pixel bevel instead of a soft glow. */
+  background-image: var(--live-grain);
+  box-shadow:
+    inset 0 1px 0 rgb(238 232 220 / 0.09),
+    inset 0 -1px 0 rgb(0 0 0 / 0.38);
   clip-path: polygon(0 0, 100% 0, calc(100% - 0.875rem) 100%, 0 100%);
   animation: studio-live-name-in var(--motion-live-enter) var(--ease-live) both;
+}
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .studio-live-identity { background-color: color-mix(in srgb, var(--live-emblem) 45%, var(--live-bg)); }
+}
+
+/* Brass rail on the leading edge, the way a game plate marks the item it belongs to. */
+.studio-live-identity::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.375rem;
+  background: var(--live-brass-sheen);
+  content: "";
+  transform-origin: top;
+  animation: studio-live-rail-in var(--motion-live-enter) var(--ease-live) both;
 }
 
 .studio-live-identity::after {
   position: absolute;
   inset: auto var(--space-8) 0 var(--space-5);
   height: 0.125rem;
-  background: var(--live-brass);
+  background: var(--live-brass-sheen);
   content: "";
+  transform-origin: left;
+  animation: studio-live-rule-in var(--motion-live-enter) 140ms var(--ease-live) both;
 }
 
 .studio-live-signal-mark {
@@ -617,10 +656,16 @@
   margin-block-end: 0.32em;
   color: var(--live-brass);
 }
-.studio-live-signal-mark i { display: block; width: 0.375rem; background: currentColor; }
-.studio-live-signal-mark i:nth-child(1) { height: 35%; }
-.studio-live-signal-mark i:nth-child(2) { height: 65%; }
-.studio-live-signal-mark i:nth-child(3) { height: 100%; }
+.studio-live-signal-mark i {
+  display: block;
+  width: 0.375rem;
+  background: linear-gradient(180deg, var(--live-brass-light), var(--live-brass-deep));
+  transform-origin: bottom;
+  animation: studio-live-bar-in 320ms var(--ease-live) both;
+}
+.studio-live-signal-mark i:nth-child(1) { height: 35%; animation-delay: 180ms; }
+.studio-live-signal-mark i:nth-child(2) { height: 65%; animation-delay: 250ms; }
+.studio-live-signal-mark i:nth-child(3) { height: 100%; animation-delay: 320ms; }
 
 .studio-live-identity-copy {
   display: grid;
@@ -628,11 +673,16 @@
   gap: var(--space-2);
 }
 
+/* Struck-brass name: the gradient stays inside the two brass tones that are already
+   contrast-checked, so the metal sheen never costs legibility. */
 .studio-live-identity h1 {
   min-width: 0;
   max-height: 24svh;
   overflow-y: auto;
+  background-image: var(--live-brass-text);
+  background-clip: text;
   color: var(--live-brass);
+  -webkit-text-fill-color: transparent;
   font-size: var(--type-live-name);
   font-weight: 900;
   line-height: 1.08;
@@ -640,16 +690,28 @@
   overflow-wrap: anywhere;
   scrollbar-color: var(--live-brass) transparent;
   scrollbar-width: thin;
+  text-shadow: 0 1px 0 rgb(0 0 0 / 0.42);
   text-wrap: pretty;
 }
 
 .studio-live-identity-copy > p {
+  display: flex;
+  align-items: center;
+  min-width: 0;
   color: var(--live-muted);
   font-size: var(--type-live-topic);
   font-weight: 700;
   line-height: 1.35;
   letter-spacing: 0.04em;
   overflow-wrap: anywhere;
+}
+.studio-live-identity-copy > p::before {
+  width: clamp(1rem, 2vw, 1.75rem);
+  height: 1px;
+  flex: 0 0 auto;
+  margin-inline-end: var(--space-3);
+  background: linear-gradient(90deg, transparent, var(--live-brass-deep));
+  content: "";
 }
 
 .studio-live-navigation-status {
@@ -662,8 +724,10 @@
   pointer-events: none;
 }
 .studio-live-navigation-status > span {
-  padding: var(--space-2) var(--space-3);
-  background: var(--live-panel);
+  padding: var(--space-2) var(--space-3) var(--space-2) calc(var(--space-3) + 0.5rem);
+  border: 1px solid var(--live-edge);
+  border-inline-start: 0.1875rem solid var(--live-brass-deep);
+  background: color-mix(in srgb, var(--live-panel) 92%, black);
   color: var(--live-paper);
   font-size: var(--type-caption);
 }
@@ -676,26 +740,38 @@
   width: 100%;
   margin: -1px 0 0;
   overflow: hidden;
-  background: linear-gradient(150deg, var(--live-panel), var(--live-recess));
+  background-color: var(--live-panel);
+  background-image: var(--live-grain), linear-gradient(150deg, var(--live-plate), var(--live-plate-deep));
   border-radius: 0;
-  box-shadow: var(--shadow-live-panel);
+  box-shadow:
+    inset 0 1px 0 rgb(238 232 220 / 0.05),
+    inset 0 -1px 0 rgb(0 0 0 / 0.32),
+    var(--shadow-live-panel);
   animation: studio-live-message-in var(--motion-live-panel) 120ms var(--ease-live) both;
 }
 
+/*
+ * Double frame: a gunmetal outer edge and a recessed warm hairline, both cut by the same
+ * clipped octagon. The sweep reads as the plate powering on once, never as a looping effect.
+ */
 .studio-live-message::before {
   position: absolute;
   z-index: 2;
   inset: 0;
   border: 1px solid var(--live-edge);
+  outline: 1px solid var(--live-hairline);
+  outline-offset: -0.625rem;
   clip-path: polygon(0 0, calc(100% - 1.5rem) 0, 100% 1.5rem, 100% 100%, 1.5rem 100%, 0 calc(100% - 1.5rem));
   content: "";
   pointer-events: none;
+  animation: studio-live-frame-in var(--motion-live-sweep) var(--ease-live) both;
 }
 .studio-live-message::after {
   position: absolute;
   z-index: 2;
   inset: 0;
   background:
+    linear-gradient(90deg, var(--live-brass) 0%, rgb(207 183 139 / 0.24) 15%, transparent 48%) left top / 100% 1px no-repeat,
     linear-gradient(var(--live-brass), var(--live-brass)) left top / 3rem 2px no-repeat,
     linear-gradient(var(--live-brass), var(--live-brass)) left top / 2px 3rem no-repeat,
     linear-gradient(var(--live-brass), var(--live-brass)) right bottom / 3rem 2px no-repeat,
@@ -724,8 +800,10 @@
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-2) var(--space-2) max(var(--space-8), env(safe-area-inset-bottom)) 0;
-  scrollbar-color: var(--live-muted) transparent;
+  padding: var(--space-2) var(--space-3) max(var(--space-8), env(safe-area-inset-bottom)) 0;
+  /* A permanent brass rail replaces the auto-hiding overlay bar: a long message must show
+     that there is more to read without a scroll hint that only appears mid-scroll. */
+  scrollbar-color: rgb(207 183 139 / 0.45) rgb(238 232 220 / 0.06);
   scrollbar-width: thin;
 }
 .studio-live-message-text:focus-visible { outline-color: var(--live-brass); outline-offset: var(--space-1); }
@@ -739,6 +817,7 @@
   line-height: 1.45;
   letter-spacing: -0.025em;
   overflow-wrap: anywhere;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.34);
   white-space: pre-wrap;
 }
 .studio-live-message--with-images .studio-live-message-text > p { font-size: var(--type-live-message-media); line-height: 1.5; }
@@ -765,19 +844,34 @@
   min-height: 0;
   overflow: hidden;
   padding: 0;
-  border: 0;
-  border-radius: 0.25rem;
+  border: 1px solid var(--live-edge);
+  border-radius: 0;
   background: var(--live-bg);
-  transition: transform var(--motion-fast) var(--ease-out);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.35);
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out);
 }
-.studio-live-images button:hover { transform: translateY(-0.125rem); }
+.studio-live-images button:hover { border-color: var(--live-brass-deep); transform: translateY(-0.125rem); }
 .studio-live-images button:active { transform: scale(0.99); }
-.studio-live-images button:focus-visible { outline-color: var(--live-brass); }
+.studio-live-images button:focus-visible { border-color: var(--live-brass); outline-color: var(--live-brass); }
 .studio-live-images img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
 
 /* Keep the key field flat; the foreground retains its own, opaque original colors. */
 .studio-shell[data-chroma="true"] .studio-live-stage::before { display: none; }
-.studio-shell[data-chroma="true"] .studio-live-message { box-shadow: none; }
+.studio-shell[data-chroma="true"] .studio-live-message {
+  box-shadow:
+    inset 0 1px 0 rgb(238 232 220 / 0.05),
+    inset 0 -1px 0 rgb(0 0 0 / 0.32);
+}
+
+/* Skimming the queue must not replay the entrance sequence on every step. */
+.studio-live-page[data-entry="instant"] .studio-live-identity,
+.studio-live-page[data-entry="instant"] .studio-live-identity::before,
+.studio-live-page[data-entry="instant"] .studio-live-identity::after,
+.studio-live-page[data-entry="instant"] .studio-live-signal-mark i,
+.studio-live-page[data-entry="instant"] .studio-live-message,
+.studio-live-page[data-entry="instant"] .studio-live-message::before { animation: none; }
 
 @keyframes studio-live-name-in {
   from { opacity: 0; transform: translateX(-1rem); }
@@ -786,6 +880,22 @@
 @keyframes studio-live-message-in {
   from { opacity: 0; transform: translateX(2rem); }
   to { opacity: 1; transform: translateX(0); }
+}
+@keyframes studio-live-rail-in {
+  from { transform: scaleY(0.15); }
+  to { transform: scaleY(1); }
+}
+@keyframes studio-live-rule-in {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes studio-live-bar-in {
+  from { opacity: 0; transform: scaleY(0.2); }
+  to { opacity: 1; transform: scaleY(1); }
+}
+@keyframes studio-live-frame-in {
+  from { border-color: var(--live-brass); outline-color: rgb(207 183 139 / 0.5); }
+  to { border-color: var(--live-edge); outline-color: var(--live-hairline); }
 }
 
 .studio-lightbox {
@@ -959,9 +1069,10 @@
     max-height: 28svh;
     gap: var(--space-3);
     margin-inline-start: 0;
-    padding: var(--space-3) var(--space-5);
+    padding: var(--space-3) var(--space-5) var(--space-3) calc(var(--space-5) + 0.375rem);
   }
   .studio-live-signal-mark { height: 1.125rem; }
+  .studio-live-identity-copy > p::before { width: 1rem; margin-inline-end: var(--space-2); }
   .studio-live-identity h1 { max-height: 22svh; font-size: var(--type-live-name-mobile); }
   .studio-live-identity-copy > p { font-size: var(--type-live-topic-mobile); }
   .studio-live-navigation-status > span { max-width: 100%; }
@@ -1012,11 +1123,25 @@
   .studio-live-toggle,
   .studio-live-action,
   .studio-live-images button { border-color: currentColor; }
+  /* Background-clipped text is invisible once forced colours replace the gradient. */
+  .studio-live-identity h1 {
+    background-image: none;
+    color: CanvasText;
+    -webkit-text-fill-color: currentColor;
+    text-shadow: none;
+  }
+  .studio-live-identity::before { background: CanvasText; }
+  .studio-live-message,
+  .studio-live-identity { box-shadow: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .studio-live-identity,
-  .studio-live-message { animation: none; }
+  .studio-live-identity::before,
+  .studio-live-identity::after,
+  .studio-live-signal-mark i,
+  .studio-live-message,
+  .studio-live-message::before { animation: none; }
 }
 
 .studio-password-page { max-width: 40rem; margin-inline: auto; }

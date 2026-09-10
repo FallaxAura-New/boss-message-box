@@ -18,7 +18,6 @@ import { TOPIC_LABELS, TOPIC_VALUES, type Topic } from "../../../shared/contract
 import { studioFeedbackViewSchema, type StudioFeedbackDetail, type StudioReplyType } from "../../../shared/studio-contracts";
 import {
   createStudioReply,
-  getNextStudioFeedback,
   getStudioFeedback,
   revealStudioPhone,
   retryStudioModeration,
@@ -30,6 +29,15 @@ import { StudioError, StudioLoading } from "../components/AsyncState";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import type { StudioOutletContext } from "../components/StudioShell";
+import { readLiveImage } from "../live-images";
+import {
+  invalidateLiveFeedback,
+  loadLiveFeedback,
+  loadLiveNeighbor,
+  readLiveFeedback,
+  readLiveNeighbor,
+  warmLiveSequence,
+} from "../live-sequence";
 
 function formatDate(timestamp: number): string {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -43,6 +51,7 @@ function formatDate(timestamp: number): string {
 
 interface DetailLocationState {
   returnContext?: StudioReturnContext;
+  instantEntry?: boolean;
 }
 
 interface ReplyAttempt {
@@ -52,14 +61,33 @@ interface ReplyAttempt {
   requestKey: string;
 }
 
+type StepDirection = "previous" | "next";
+
+type StepOutcome =
+  | { status: "moved"; feedbackId: string }
+  | { status: "end" }
+  | { status: "failed"; message: string };
+
+/** Steps that follow each other faster than this are treated as one continuous skim. */
+const RAPID_STEP_MS = 900;
+/** A burst of queued steps is capped so a stuck key cannot run through the whole queue. */
+const MAX_QUEUED_STEPS = 8;
+/** How long a state notice stays on the live stage before it clears itself. */
+const LIVE_NOTICE_MS = 4000;
+
 export function FeedbackDetailPage() {
   const { feedbackId = "" } = useParams();
   const { liveMode } = useOutletContext<StudioOutletContext>();
   const location = useLocation();
   const navigate = useNavigate();
-  const returnContext = (location.state as DetailLocationState | null)?.returnContext ?? null;
+  const locationState = location.state as DetailLocationState | null;
+  const returnContext = locationState?.returnContext ?? null;
+  const instantEntry = locationState?.instantEntry === true;
   const [loaded, setLoaded] = useState<{ feedbackId: string; item: StudioFeedbackDetail } | null>(null);
-  const item = loaded?.feedbackId === feedbackId ? loaded.item : null;
+  const stateItem = loaded?.feedbackId === feedbackId ? loaded.item : null;
+  // Reading the warmed cache during render keeps a prefetched message on screen without a
+  // loading frame, which is the point of preparing the sequence ahead of the operator.
+  const item = stateItem ?? (liveMode ? readLiveFeedback(feedbackId) : null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [revealedPhone, setRevealedPhone] = useState<{ userId: string; phone: string } | null>(null);
@@ -72,9 +100,8 @@ export function FeedbackDetailPage() {
   const [moderationNotice, setModerationNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [moderationBusy, setModerationBusy] = useState(false);
-  const [navigationDirection, setNavigationDirection] = useState<"previous" | "next" | null>(null);
+  const [navigationDirection, setNavigationDirection] = useState<StepDirection | null>(null);
   const navigationBusy = navigationDirection !== null;
-  const [atStart, setAtStart] = useState(false);
   const [atEnd, setAtEnd] = useState(false);
   const [liveNotice, setLiveNotice] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -83,22 +110,60 @@ export function FeedbackDetailPage() {
   const actionRef = useRef(false);
   const replyAttemptRef = useRef<ReplyAttempt | null>(null);
   const currentFeedbackRef = useRef(feedbackId);
+  /**
+   * Where the arrow keys are stepping from. A warmed step can finish before React commits the
+   * navigation, so the committed id is not a safe cursor: this one is advanced synchronously
+   * when a step navigates, and re-synced whenever a message actually commits.
+   */
+  const liveCursorRef = useRef(feedbackId);
+  const stepRef = useRef(false);
+  const queueRef = useRef<{ direction: StepDirection; steps: number } | null>(null);
+  const lastStepAtRef = useRef(0);
+
+  const sequence = useMemo(() => {
+    const query = new URLSearchParams(location.search);
+    const parsed = studioFeedbackViewSchema.safeParse(query.get("view"));
+    const topicValue = query.get("topic");
+    return {
+      view: parsed.success ? parsed.data : "unreplied" as const,
+      topic: topicValue && TOPIC_VALUES.includes(topicValue as Topic) ? topicValue as Topic : null,
+    };
+  }, [location.search]);
 
   useEffect(() => {
-    const controller = new AbortController();
+    liveCursorRef.current = feedbackId;
     if (currentFeedbackRef.current !== feedbackId) {
       currentFeedbackRef.current = feedbackId;
       replyAttemptRef.current = null;
       setReplyPending(false);
       setReplySubmitted(false);
-      setAtStart(false);
       setAtEnd(false);
-      setLiveNotice(null);
+      // The stage notice is deliberately left alone: a queued step can resolve before React
+      // commits the previous navigation, and clearing it here would swallow the boundary
+      // message the operator just triggered. It clears itself on the next successful step.
       setModerationNotice(null);
       setReplyContent("");
       setReplyType(null);
       setReplyError(null);
     }
+    if (liveMode) {
+      // Served from the prefetched window when possible; otherwise the load is deduplicated
+      // against any identical request already in flight.
+      let cancelled = false;
+      loadLiveFeedback(feedbackId)
+        .then((value) => {
+          if (cancelled) return;
+          setLoaded({ feedbackId, item: value });
+          setError(null);
+        })
+        .catch((reason) => {
+          if (!cancelled) setError(reason instanceof Error ? reason.message : "留言详情加载失败");
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+    const controller = new AbortController();
     getStudioFeedback(feedbackId, controller.signal)
       .then((value) => {
         if (controller.signal.aborted) return;
@@ -111,10 +176,26 @@ export function FeedbackDetailPage() {
     return () => controller.abort();
   }, [feedbackId, liveMode, reload]);
 
+  // Warm both neighbours as soon as a message is on screen: their ids, their details and
+  // their images. Everything is deduplicated inside the cache, so repeating this is cheap.
+  useEffect(() => {
+    if (!liveMode || !item) return undefined;
+    const timer = window.setTimeout(() => {
+      warmLiveSequence({ id: item.id, view: sequence.view, topic: sequence.topic });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [item, liveMode, sequence.topic, sequence.view]);
+
+  useEffect(() => {
+    if (!liveNotice) return undefined;
+    const timer = window.setTimeout(() => setLiveNotice(null), LIVE_NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [liveNotice]);
+
   const images = useMemo<LightboxImage[]>(
     () => item?.images.map((image, index) => ({
       id: image.id,
-      src: image.viewUrl,
+      src: readLiveImage(image.viewUrl) ?? image.viewUrl,
       downloadUrl: image.downloadUrl,
       alt: `留言图片 ${index + 1}`,
       width: image.width,
@@ -273,48 +354,117 @@ export function FeedbackDetailPage() {
     }
   };
 
-  const goAdjacent = useCallback(async (direction: "previous" | "next") => {
-    if (!item || actionRef.current) return;
-    if ((direction === "previous" && atStart) || (direction === "next" && atEnd)) return;
-    actionRef.current = true;
-    setNavigationDirection(direction);
-    setReplyError(null);
-    setLiveNotice(direction === "previous" ? "正在切换到上一条留言…" : "正在切换到下一条留言…");
+  const stepOnce = useCallback(async (fromId: string, direction: StepDirection): Promise<StepOutcome> => {
+    const { view, topic } = sequence;
+    // Only advertise a wait when the neighbour genuinely has to be fetched; a warmed step
+    // is synchronous, and flashing "正在切换…" on it would be noise on the stream.
+    if (liveMode && readLiveNeighbor({ id: fromId, view, topic, direction }) === undefined) {
+      setLiveNotice(direction === "previous" ? "正在切换到上一条留言…" : "正在切换到下一条留言…");
+    }
     try {
-      const query = new URLSearchParams(location.search);
-      const parsedView = studioFeedbackViewSchema.safeParse(query.get("view"));
-      const view = parsedView.success ? parsedView.data : "unreplied";
-      const topicValue = query.get("topic");
-      const topic = topicValue && TOPIC_VALUES.includes(topicValue as Topic)
-        ? topicValue as Topic
-        : null;
-      const adjacent = await getNextStudioFeedback(item.id, view, topic, direction);
-      if (currentFeedbackRef.current !== item.id) return;
-      if (!adjacent.nextFeedbackId) {
-        if (direction === "previous") setAtStart(true);
-        else setAtEnd(true);
-        setLiveNotice(direction === "previous" ? "已经是第一条留言了" : "已经是最后一条留言了");
-        return;
-      }
+      const adjacentId = await loadLiveNeighbor({ id: fromId, view, topic, direction });
+      if (!adjacentId) return { status: "end" };
       const nextQuery = new URLSearchParams({ view });
       if (liveMode) nextQuery.set("mode", "live");
       if (topic) nextQuery.set("topic", topic);
-      navigate(`/studio/feedback/${encodeURIComponent(adjacent.nextFeedbackId)}?${nextQuery}`, {
+      const now = Date.now();
+      navigate(`/studio/feedback/${encodeURIComponent(adjacentId)}?${nextQuery}`, {
         replace: true,
-        state: { returnContext },
+        state: {
+          returnContext,
+          // A skim must not replay the 640ms entrance on every step.
+          instantEntry: now - lastStepAtRef.current < RAPID_STEP_MS,
+        },
       });
+      lastStepAtRef.current = now;
+      liveCursorRef.current = adjacentId;
       window.scrollTo({ top: 0, behavior: "instant" });
+      return { status: "moved", feedbackId: adjacentId };
     } catch (reason) {
-      setLiveNotice(null);
-      setReplyError(reason instanceof Error ? reason.message : `${direction === "previous" ? "上一" : "下一"}条留言暂时无法加载`);
-    } finally {
-      actionRef.current = false;
-      setNavigationDirection(null);
+      return {
+        status: "failed",
+        message: reason instanceof Error
+          ? reason.message
+          : `${direction === "previous" ? "上一" : "下一"}条留言暂时无法加载`,
+      };
     }
-  }, [atEnd, atStart, item, liveMode, location.search, navigate, returnContext]);
+  }, [liveMode, navigate, returnContext, sequence]);
+
+  const goAdjacent = useCallback(async (direction: StepDirection) => {
+    const fromId = liveCursorRef.current;
+    if (!fromId || actionRef.current) return;
+    actionRef.current = true;
+    setNavigationDirection(direction);
+    setReplyError(null);
+    const outcome = await stepOnce(fromId, direction);
+    if (outcome.status === "end") {
+      if (direction === "next") setAtEnd(true);
+      setLiveNotice(direction === "previous" ? "已经是第一条留言了" : "已经是最后一条留言了");
+    } else if (outcome.status === "failed") {
+      setLiveNotice(null);
+      setReplyError(outcome.message);
+    }
+    actionRef.current = false;
+    setNavigationDirection(null);
+  }, [stepOnce]);
+
+  /**
+   * Arrow keys are queued instead of discarded: hammering the key used to advance a single
+   * message because every press after the first landed while a request was still open.
+   * The cursor is carried by the loop itself, so consecutive steps do not wait for React to
+   * commit the previous navigation before resolving the next neighbour.
+   */
+  const requestStep = useCallback((direction: StepDirection) => {
+    const queued = queueRef.current;
+    if (stepRef.current || actionRef.current) {
+      if (queued && queued.direction === direction) {
+        queued.steps = Math.min(queued.steps + 1, MAX_QUEUED_STEPS);
+      } else {
+        queueRef.current = { direction, steps: 1 };
+      }
+      return;
+    }
+    const fromId = liveCursorRef.current;
+    if (!fromId) return;
+    stepRef.current = true;
+    queueRef.current = { direction, steps: 1 };
+    const run = async () => {
+      let cursor: string | null = fromId;
+      try {
+        for (;;) {
+          const pending = queueRef.current;
+          if (!cursor || !pending || pending.steps <= 0) break;
+          const stepDirection = pending.direction;
+          // Claim this step before awaiting, so a press that lands mid-request queues a new one.
+          pending.steps -= 1;
+          if (pending.steps <= 0) queueRef.current = null;
+          setNavigationDirection(stepDirection);
+          setReplyError(null);
+          const outcome = await stepOnce(cursor, stepDirection);
+          if (outcome.status === "moved") {
+            cursor = outcome.feedbackId;
+            setLiveNotice(null);
+          } else if (outcome.status === "end") {
+            if (stepDirection === "next") setAtEnd(true);
+            setLiveNotice(stepDirection === "previous" ? "已经是第一条留言了" : "已经是最后一条留言了");
+            break;
+          } else {
+            setLiveNotice(null);
+            setReplyError(outcome.message);
+            break;
+          }
+        }
+      } finally {
+        queueRef.current = null;
+        stepRef.current = false;
+        setNavigationDirection(null);
+      }
+    };
+    void run();
+  }, [stepOnce]);
 
   useEffect(() => {
-    if (!liveMode || lightboxIndex !== null) return;
+    if (!liveMode || lightboxIndex !== null) return undefined;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -325,11 +475,11 @@ export function FeedbackDetailPage() {
         || target.closest("dialog[open]")
       )) return;
       event.preventDefault();
-      void goAdjacent(event.key === "ArrowLeft" ? "previous" : "next");
+      requestStep(event.key === "ArrowLeft" ? "previous" : "next");
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [goAdjacent, lightboxIndex, liveMode]);
+  }, [lightboxIndex, liveMode, requestStep]);
 
   const requestSubmit = () => {
     if (liveMode) return;
@@ -337,10 +487,35 @@ export function FeedbackDetailPage() {
     setConfirmOpen(true);
   };
 
-  if (error) return <div className="studio-page"><StudioError message={error} onRetry={() => { setError(null); setLoaded(null); setReload((value) => value + 1); }} /></div>;
+  if (error) {
+    return (
+      <div className="studio-page">
+        <StudioError
+          message={error}
+          onRetry={() => {
+            invalidateLiveFeedback(feedbackId);
+            setError(null);
+            setLoaded(null);
+            setReload((value) => value + 1);
+          }}
+        />
+      </div>
+    );
+  }
   if (!item) return <StudioLoading label="正在加载留言详情" />;
   if (liveMode && item.moderationStatus !== "kept" && item.moderationStatus !== "failed") {
-    return <div className="studio-page"><StudioError message="这条留言尚不能进入直播，请等待筛选完成或返回列表。" onRetry={() => setReload((value) => value + 1)} /><Button type="button" variant="quiet" onClick={goBack}>返回列表</Button></div>;
+    return (
+      <div className="studio-page">
+        <StudioError
+          message="这条留言尚不能进入直播，请等待筛选完成或返回列表。"
+          onRetry={() => {
+            invalidateLiveFeedback(feedbackId);
+            setReload((value) => value + 1);
+          }}
+        />
+        <Button type="button" variant="quiet" onClick={goBack}>返回列表</Button>
+      </div>
+    );
   }
 
   const topic = item.topic === "other" ? item.customTopic : TOPIC_LABELS[item.topic];
@@ -354,7 +529,7 @@ export function FeedbackDetailPage() {
       ? "compact"
       : item.content.length > 400 ? "dense" : "standard";
     return (
-      <div className="studio-live-page">
+      <div className="studio-live-page" data-entry={instantEntry ? "instant" : undefined}>
         <section
           key={item.id}
           className="studio-live-stage"
@@ -381,7 +556,7 @@ export function FeedbackDetailPage() {
                   <aside className={`studio-live-images studio-live-images--${images.length}`} aria-label="留言图片缩略图">
                     {images.map((image, index) => (
                       <button key={image.id} type="button" onClick={() => setLightboxIndex(index)} aria-label={`放大留言图片 ${index + 1}`}>
-                        <img src={image.src} alt={image.alt} width={image.width} height={image.height} />
+                        <img src={image.src} alt={image.alt} width={image.width} height={image.height} decoding="async" />
                       </button>
                     ))}
                   </aside>

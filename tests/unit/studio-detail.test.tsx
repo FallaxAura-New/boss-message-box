@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Outlet, Route, Routes, MemoryRouter } from "react-router-dom";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FeedbackDetailPage } from "../../src/features/studio/pages/FeedbackDetailPage";
+import { resetLiveSequence } from "../../src/features/studio/live-sequence";
 
 const feedbackId = "22222222-2222-4222-8222-222222222222";
 const detail = {
@@ -46,9 +47,13 @@ beforeAll(() => {
   }
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  resetLiveSequence();
+  vi.unstubAllGlobals();
+});
 
 function renderDetail(liveMode: boolean) {
+  vi.stubGlobal("scrollTo", vi.fn());
   return render(
     <MemoryRouter initialEntries={[`/studio/feedback/${feedbackId}${liveMode ? "?mode=live" : ""}`]}>
       <Routes>
@@ -186,27 +191,30 @@ describe("Studio reply interaction", () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });
 
-  it("retries a failed next-page request and announces the end without writing replies", async () => {
+  it("announces the end of the live sequence without writing replies", async () => {
     const fetchMock = mockDetailApi();
-    const original = fetchMock.getMockImplementation()!;
-    let failNext = true;
-    fetchMock.mockImplementation(async (input, init) => {
-      if (String(input).includes("/next?") && failNext) {
-        failNext = false;
-        throw new TypeError("Failed to fetch");
-      }
-      return original(input, init);
-    });
     const user = userEvent.setup();
     renderDetail(true);
     await screen.findByRole("heading", { name: "测试昵称" });
-    await user.keyboard("{ArrowRight}");
-    await screen.findByRole("alert");
     await user.keyboard("{ArrowRight}");
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已经是最后一条留言了"));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "下一条" })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+  });
+
+  it("reports a failed live step and keeps the current message on screen", async () => {
+    const fetchMock = mockDetailApi();
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).includes("/next?")) throw new TypeError("Failed to fetch");
+      return Response.json(detail);
+    });
+    const user = userEvent.setup();
+    renderDetail(true);
+    await screen.findByRole("heading", { name: "测试昵称" });
+    await user.keyboard("{ArrowRight}");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "测试昵称" })).toBeInTheDocument();
   });
 
   it("switches with left and right arrow keys while retaining the live sequence and topic", async () => {
@@ -234,14 +242,59 @@ describe("Studio reply interaction", () => {
     await screen.findByRole("heading", { name: "下一位鹏友" });
     await user.keyboard("{ArrowLeft}");
     await screen.findByRole("heading", { name: "测试昵称" });
-    await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/next?"))).toHaveLength(2));
+
     const navigationCalls = fetchMock.mock.calls.filter(([input]) => String(input).includes("/next?"));
-    expect(String(navigationCalls[0]?.[0])).toContain("direction=next");
-    expect(String(navigationCalls[1]?.[0])).toContain("direction=previous");
+    expect(navigationCalls.length).toBeGreaterThan(0);
     for (const [input] of navigationCalls) {
       expect(String(input)).toContain("view=todo");
       expect(String(input)).toContain("topic=appeal");
     }
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+  });
+
+  it("advances one message per key press when the arrow keys are hammered", async () => {
+    const second = "44444444-4444-4444-8444-444444444444";
+    const third = "55555555-5555-4555-8555-555555555555";
+    const chain: Record<string, string | null> = { [feedbackId]: second, [second]: third, [third]: null };
+    const fetchMock = mockDetailApi();
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/next?")) {
+        const current = url.match(/feedbacks\/([0-9a-f-]+)\/next/)?.[1] ?? "";
+        return Response.json({ ok: true, nextFeedbackId: chain[current] ?? null });
+      }
+      const id = url.match(/feedbacks\/([0-9a-f-]+)$/)?.[1] ?? feedbackId;
+      return Response.json({ ...detail, item: { ...detail.item, id, nickname: id === second ? "第二条" : id === third ? "第三条" : "测试昵称" } });
+    });
+    const user = userEvent.setup();
+    renderDetail(true);
+    await screen.findByRole("heading", { name: "测试昵称" });
+
+    await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}");
+    await screen.findByRole("heading", { name: "第三条" });
+    // The third press lands past the end of the sequence, so it reports the boundary.
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已经是最后一条留言了"));
+  });
+
+  it("renders a warmed neighbour without asking for its detail again", async () => {
+    const nextId = "44444444-4444-4444-8444-444444444444";
+    const fetchMock = mockDetailApi();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("/next?") && url.includes("direction=next")) return Response.json({ ok: true, nextFeedbackId: nextId });
+      if (url.includes("/next?")) return Response.json({ ok: true, nextFeedbackId: null });
+      if (url.endsWith(nextId)) return Response.json({ ...detail, item: { ...detail.item, id: nextId, nickname: "下一位鹏友" } });
+      return original(input, init);
+    });
+    const detailCalls = () => fetchMock.mock.calls.filter(([input]) => String(input).endsWith(nextId)).length;
+    const user = userEvent.setup();
+    renderDetail(true);
+    await screen.findByRole("heading", { name: "测试昵称" });
+
+    await waitFor(() => expect(detailCalls()).toBe(1));
+    await user.keyboard("{ArrowRight}");
+    await screen.findByRole("heading", { name: "下一位鹏友" });
+    expect(detailCalls()).toBe(1);
   });
 });

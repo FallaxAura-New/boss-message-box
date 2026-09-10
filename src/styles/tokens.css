@@ -51,16 +51,28 @@
   --live-bg: #0e171c;
   --live-canvas: var(--live-bg);
   --live-panel: #19252b;
+  --live-plate: #1d2a31;
+  --live-plate-deep: #141f25;
   --live-paper: #eee8dc;
   --live-brass: #cfb78b;
+  --live-brass-light: #e7d8b5;
+  --live-brass-deep: #9a7f4c;
   --live-coral: #ff6570;
   --live-muted: #a8b4b7;
   --live-edge: #34444b;
   --live-recess: #101c22;
   --live-emblem: #512f36;
   --shadow-live-panel: 0 1.5rem 4rem #0e171c;
+  /* Matte grain and metal sheen give the live plates a physical surface without a texture file. */
+  --live-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23g)' opacity='0.055'/%3E%3C/svg%3E");
+  /* Decorative metal for rails and rules; the text variant stops at the checked brass tone
+     so the name never drops below its documented 7.90:1. */
+  --live-brass-sheen: linear-gradient(180deg, var(--live-brass-light), var(--live-brass) 52%, var(--live-brass-deep));
+  --live-brass-text: linear-gradient(180deg, var(--live-brass-light), var(--live-brass) 62%);
+  --live-hairline: rgb(238 232 220 / 0.075);
   --motion-live-enter: 480ms;
   --motion-live-panel: 520ms;
+  --motion-live-sweep: 720ms;
   --ease-live: cubic-bezier(0.16, 1, 0.3, 1);
 
   --space-1: 0.25rem;

@@ -165,11 +165,13 @@ export function getNextStudioFeedback(
   view: StudioFeedbackView,
   topic?: Topic | null,
   direction: "previous" | "next" = "next",
+  signal?: AbortSignal,
 ): Promise<StudioNextFeedbackSuccess> {
   const query = new URLSearchParams({ view, direction });
   if (topic) query.set("topic", topic);
   return request(
     `/api/studio/feedbacks/${encodeURIComponent(feedbackId)}/next?${query}`,
+    { signal },
   );
 }
 
