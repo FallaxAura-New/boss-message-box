@@ -409,14 +409,13 @@ export class D1FeedbackRepository implements FeedbackRepository {
         }];
       }
       const replied = replies.length > 0;
-      const filtered = row.moderation_status === "filtered";
       return {
         id: row.id,
         topic: row.topic,
         customTopic: row.custom_topic,
         content: row.content,
         imageCount: Number(row.image_count),
-        status: filtered ? "filtered" : replied ? "replied" : "unreplied",
+        status: replied ? "replied" : "unreplied",
         replies,
         replyContent: replied ? replies.at(-1)?.content ?? null : null,
         createdAt: row.created_at,

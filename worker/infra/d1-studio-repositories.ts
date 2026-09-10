@@ -22,6 +22,8 @@ import type {
 } from "../core/studio-ports";
 
 export interface SummaryRow {
+  routing_status: "pending" | "selected" | "not_selected";
+  live_selected: number;
   id: string;
   user_id: string | null;
   douyin_nickname: string;
@@ -42,7 +44,9 @@ export interface SummaryRow {
 export const SUMMARY_SELECT = `
   SELECT f.id, f.user_id, COALESCE(f.douyin_nickname, u.douyin_nickname) AS douyin_nickname,
          f.shop_phone, f.topic, f.custom_topic, f.content, f.created_at, f.is_todo,
-         f.moderation_status, f.moderation_category, f.moderation_reason,
+         f.moderation_status, f.moderation_category, f.moderation_reason, f.routing_status,
+         EXISTS (SELECT 1 FROM live_entries le JOIN live_batches lb ON lb.id = le.batch_id
+           WHERE le.feedback_id = f.id AND le.removed_at IS NULL AND lb.status = 'active') AS live_selected,
          (SELECT COUNT(*) FROM feedback_images image WHERE image.feedback_id = f.id) AS image_count,
          (SELECT COUNT(*) FROM feedback_replies reply WHERE reply.feedback_id = f.id) AS reply_count,
          (SELECT admin.username
@@ -62,6 +66,8 @@ export function mapSummary(row: SummaryRow): StudioFeedbackSummary {
   const replyCount = Number(row.reply_count);
   const filtered = row.moderation_status === "filtered";
   return {
+    routingStatus: row.routing_status,
+    liveSelected: Boolean(row.live_selected),
     id: row.id,
     feedbackNumber: feedbackNumber(row.id),
     userId: row.user_id,
@@ -84,8 +90,14 @@ export function mapSummary(row: SummaryRow): StudioFeedbackSummary {
 export function viewFilter(view: StudioListInput["view"]): string {
   const normal = "f.moderation_status <> 'filtered'";
   switch (view) {
+    case "routing":
+      return `f.moderation_status = 'kept' AND f.routing_status = 'pending' AND NOT EXISTS (SELECT 1 FROM feedback_replies reply WHERE reply.feedback_id = f.id)`;
+    case "moderation":
+      return "f.moderation_status IN ('pending', 'failed')";
+    case "live_display":
+      return `EXISTS (SELECT 1 FROM live_entries le JOIN live_batches lb ON lb.id = le.batch_id WHERE le.feedback_id = f.id AND le.removed_at IS NULL AND lb.status = 'active')`;
     case "unreplied":
-      return `${normal} AND NOT EXISTS (SELECT 1 FROM feedback_replies reply WHERE reply.feedback_id = f.id)`;
+      return `f.moderation_status = 'kept' AND f.routing_status <> 'pending' AND NOT EXISTS (SELECT 1 FROM feedback_replies reply WHERE reply.feedback_id = f.id)`;
     case "replied":
       return `${normal} AND EXISTS (SELECT 1 FROM feedback_replies reply WHERE reply.feedback_id = f.id)`;
     case "live":
@@ -445,7 +457,7 @@ export class D1StudioRepository implements StudioRepository {
       this.db.prepare("SELECT COUNT(*) AS count FROM feedback WHERE created_at >= ?").bind(todayStartedAt),
       this.db.prepare(
         `SELECT COUNT(*) AS count FROM feedback f
-          WHERE f.moderation_status <> 'filtered'
+          WHERE f.moderation_status = 'kept' AND f.routing_status <> 'pending'
             AND NOT EXISTS (SELECT 1 FROM feedback_replies reply WHERE reply.feedback_id = f.id)`,
       ),
       this.db.prepare(
@@ -479,7 +491,7 @@ export class D1StudioRepository implements StudioRepository {
     const row = await this.db
       .prepare(
         `SELECT COUNT(*) AS count FROM feedback
-          WHERE moderation_status <> 'filtered'
+          WHERE moderation_status = 'kept' AND routing_status <> 'pending'
             AND NOT EXISTS (SELECT 1 FROM feedback_replies WHERE feedback_id = feedback.id)
             ${readyOnly ? "AND moderation_status IN ('kept', 'failed')" : ""}
             AND (created_at > ? OR (created_at = ? AND id > ?))${topicFilter}`,
@@ -529,7 +541,7 @@ export class D1StudioRepository implements StudioRepository {
           `UPDATE feedback
            SET moderation_status = ?, moderation_source = 'manual',
                moderation_category = NULL, moderation_reason = ?, moderated_at = ?,
-               is_todo = 0, updated_at = ?, moderation_attempt_token = NULL
+               is_todo = 0, routing_status = 'pending', updated_at = ?, moderation_attempt_token = NULL
            WHERE id = ?`,
         )
         .bind(
@@ -551,6 +563,12 @@ export class D1StudioRepository implements StudioRepository {
           input.filtered ? "moderation_filtered" : "moderation_restored",
           input.now,
         ),
+      this.db.prepare(`INSERT INTO live_audit_logs(id, request_key, admin_id, action, batch_id, feedback_id, target_id, created_at)
+        SELECT ?, ?, ?, 'live_removed', e.batch_id, e.feedback_id, e.id, ? FROM live_entries e
+        JOIN live_batches b ON b.id = e.batch_id WHERE e.feedback_id = ? AND e.removed_at IS NULL AND b.status = 'active'`)
+        .bind(crypto.randomUUID(), crypto.randomUUID(), input.adminId, input.now, input.feedbackId),
+      this.db.prepare(`UPDATE live_entries SET removed_at = ?, removed_by = ? WHERE feedback_id = ? AND removed_at IS NULL
+        AND batch_id IN (SELECT id FROM live_batches WHERE status = 'active')`).bind(input.now, input.adminId, input.feedbackId),
     ]);
     return results[0]?.meta.changes === 1
       ? { moderationStatus: status, isTodo: false }

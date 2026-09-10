@@ -64,6 +64,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
+export { request as studioRequest };
+
 function jsonInit(method: string, body?: unknown): RequestInit {
   return {
     method,

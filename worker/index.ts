@@ -30,6 +30,7 @@ import type { AiModerationService } from "./services/ai-moderation-service";
 import { createAiModerationService } from "./services/moderation-factory";
 import { ImageCleanupService } from "./services/image-cleanup-service";
 import { OtpService } from "./services/otp-service";
+import { createLiveImportService } from "./services/live-import-service";
 
 type AppBindings = { Bindings: Env; Variables: { requestId: string } };
 const app = new Hono<AppBindings>();
@@ -213,6 +214,7 @@ export default {
     const maintenanceDue = controller.scheduledTime % (15 * 60_000) < 60_000;
     context.waitUntil(
       Promise.all([
+        createLiveImportService(env).run(now),
         createAiModerationService(env).recover(now),
         ...(maintenanceDue ? [
           cleanup.run(now),

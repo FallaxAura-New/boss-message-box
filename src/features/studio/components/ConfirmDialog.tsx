@@ -1,5 +1,5 @@
 import { X } from "@phosphor-icons/react";
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Button } from "../../../components/Button";
 import { closeDialog, openDialog } from "../../../lib/dialog";
 
@@ -10,6 +10,7 @@ interface ConfirmDialogProps {
   confirmLabel: string;
   busy?: boolean;
   danger?: boolean;
+  error?: string | null;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -21,10 +22,12 @@ export function ConfirmDialog({
   confirmLabel,
   busy = false,
   danger = false,
+  error,
   onCancel,
   onConfirm,
 }: ConfirmDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     const dialog = ref.current;
@@ -37,6 +40,7 @@ export function ConfirmDialog({
     <dialog
       ref={ref}
       className="studio-confirm-dialog"
+      aria-labelledby={titleId}
       onCancel={(event) => {
         if (busy) event.preventDefault();
         else onCancel();
@@ -48,7 +52,7 @@ export function ConfirmDialog({
       <div className="studio-confirm-header">
         <div>
           <span className="studio-kicker">确认操作</span>
-          <h2>{title}</h2>
+          <h2 id={titleId}>{title}</h2>
         </div>
         <button
           type="button"
@@ -61,6 +65,7 @@ export function ConfirmDialog({
         </button>
       </div>
       {description && <p className="studio-confirm-copy">{description}</p>}
+      {error && <p className="studio-confirm-copy field-error" role="alert">{error}</p>}
       <div className="studio-confirm-actions">
         <Button type="button" variant="quiet" disabled={busy} onClick={onCancel}>取消</Button>
         <Button

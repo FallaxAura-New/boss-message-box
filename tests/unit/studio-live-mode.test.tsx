@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../../src/App";
 
 const feedbackId = "22222222-2222-4222-8222-222222222222";
+const batch = { id: "00000000-0000-4000-8000-000000000007", startedAt: 1, archivedAt: null, status: "active", count: 0 };
 
 const item = {
   id: feedbackId,
@@ -46,12 +47,18 @@ function mockSessionApi(oldestId: string) {
       modeRequests.push(mode);
       return Response.json({ ok: true, admin: { id: "admin", username: "zd" }, mode, expiresAt: Date.now() + 86_400_000 });
     }
-    if (path === "/api/studio/feedbacks/sequence/start") {
+    if (path === "/api/studio/live/active") return Response.json({ ok: true, batch });
+    if (path === "/api/studio/live/batches") return Response.json({ ok: true, batches: [batch] });
+    if (path === "/api/studio/live/entries") return Response.json({ ok: true, batch, items: [], total: 0, page: 1, totalPages: 0 });
+    if (path === "/api/studio/live/imports") return Response.json({ ok: true, jobs: [] });
+    if (path === "/api/studio/live/sequence") {
+      if (new URL(rawUrl, "http://localhost").searchParams.has("currentId")) return Response.json({ ok: true, nextFeedbackId: null, batchId: batch.id });
       startRequests.push(new URL(rawUrl, "http://localhost").search);
-      return Response.json({ ok: true, feedbackId: mode === "live" ? oldestId : null });
+      return Response.json({ ok: true, feedbackId: mode === "live" ? oldestId : null, batchId: batch.id });
     }
     if (path.endsWith("/next")) return Response.json({ ok: true, nextFeedbackId: null });
     if (path === `/api/studio/feedbacks/${feedbackId}`) return Response.json({ ok: true, item });
+    if (path.startsWith("/api/studio/live/entries/")) return Response.json({ ok: true, item: { ...item, id: path.split("/").at(-1) } });
     if (path === "/api/studio/feedbacks") {
       return Response.json({ ok: true, items: [], pagination: { page: 1, pageSize: 30, total: 0, totalPages: 0 }, snapshot: null });
     }
@@ -73,13 +80,13 @@ afterEach(() => {
 const oldestId = "11111111-1111-4111-8111-111111111111";
 
 describe("live mode entry and exit", () => {
-  it("opens the live run on the earliest message of the current filter", async () => {
-    window.history.replaceState(null, "", "/studio/unreplied");
+  it("opens the live run on the earliest entry of the current batch", async () => {
+    window.history.replaceState(null, "", "/studio/live-display");
     const { startRequests } = mockSessionApi(oldestId);
     const user = userEvent.setup();
 
     render(<App />);
-    await screen.findByRole("heading", { name: "未回复留言" });
+    await screen.findByRole("heading", { name: "直播展示" });
 
     // The sidebar control and the mobile menu both expose the entry point.
     const [entry] = await screen.findAllByRole("button", { name: /直播展示模式/ });
@@ -87,13 +94,15 @@ describe("live mode entry and exit", () => {
 
     await waitFor(() => expect(window.location.pathname).toBe(`/studio/feedback/${oldestId}`));
     expect(window.location.search).toContain("mode=live");
-    expect(window.location.search).toContain("view=unreplied");
-    expect(startRequests).toEqual(["?view=unreplied"]);
+    expect(window.location.search).toContain("view=live_display");
+    expect(window.location.search).toContain(`batch=${batch.id}`);
+    expect(startRequests.every(q => q.includes(`batchId=${batch.id}`))).toBe(true);
+    expect(startRequests.length).toBeGreaterThan(0);
   });
 
   it("clears ?mode=live and never flips the session back into live mode", async () => {
     const { modeRequests } = mockSessionApi(oldestId);
-    window.history.replaceState(null, "", `/studio/feedback/${feedbackId}?mode=live&view=unreplied`);
+    window.history.replaceState(null, "", `/studio/feedback/${feedbackId}?mode=live&view=live_display&batch=${batch.id}`);
     const user = userEvent.setup();
 
     render(<App />);

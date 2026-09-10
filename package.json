@@ -15,9 +15,11 @@
     "test:worker": "vitest run --config vitest.worker.config.ts",
     "test:watch": "vitest --config vitest.config.ts",
     "check:visual": "node scripts/visual-check.mjs",
+    "check:visual:live": "node scripts/live-visual-check.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:contrast && pnpm run build",
     "cf:typegen": "wrangler types",
+    "admin:create": "node scripts/admin-password.mjs --create",
     "admin:password": "node scripts/admin-password.mjs",
     "db:migrate:local": "wrangler d1 migrations apply BOSS_MESSAGE_DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply BOSS_MESSAGE_DB --remote"

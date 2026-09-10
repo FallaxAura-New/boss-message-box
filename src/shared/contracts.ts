@@ -152,7 +152,7 @@ export interface PublicFeedback {
   customTopic: string | null;
   content: string;
   imageCount: number;
-  status: "unreplied" | "replied" | "filtered";
+  status: "unreplied" | "replied";
   replies: PublicReply[];
   /** @deprecated Use replies. Kept for a compatible public API transition. */
   replyContent: string | null;

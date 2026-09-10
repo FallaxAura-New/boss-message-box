@@ -11,7 +11,7 @@ import {
   UserCircle,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Link, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { Button } from "../../../components/Button";
 import { createRandomUuid } from "../../../lib/random-id";
 import { TOPIC_LABELS, TOPIC_VALUES, type Topic } from "../../../shared/contracts";
@@ -37,7 +37,9 @@ import {
   readLiveFeedback,
   readLiveNeighbor,
   warmLiveSequence,
+  resetLiveSequence,
 } from "../live-sequence";
+import { getActiveBatch } from "../live-api";
 
 function formatDate(timestamp: number): string {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -101,15 +103,16 @@ export function FeedbackDetailPage() {
   const { feedbackId = "" } = useParams();
   const { liveMode } = useOutletContext<StudioOutletContext>();
   const location = useLocation();
+  const batchId = liveMode ? new URLSearchParams(location.search).get("batch") ?? undefined : undefined;
   const navigate = useNavigate();
   const locationState = location.state as DetailLocationState | null;
   const returnContext = locationState?.returnContext ?? null;
   const instantEntry = locationState?.instantEntry === true;
-  const [loaded, setLoaded] = useState<{ feedbackId: string; item: StudioFeedbackDetail } | null>(null);
-  const stateItem = loaded?.feedbackId === feedbackId ? loaded.item : null;
+  const [loaded, setLoaded] = useState<{ feedbackId: string; batchId?: string; item: StudioFeedbackDetail } | null>(null);
+  const stateItem = loaded?.feedbackId === feedbackId && loaded.batchId === batchId ? loaded.item : null;
   // Reading the warmed cache during render keeps a prefetched message on screen without a
   // loading frame, which is the point of preparing the sequence ahead of the operator.
-  const item = stateItem ?? (liveMode ? readLiveFeedback(feedbackId) : null);
+  const item = stateItem ?? (liveMode ? readLiveFeedback(feedbackId, batchId) : null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [revealedPhone, setRevealedPhone] = useState<{ userId: string; phone: string } | null>(null);
@@ -153,6 +156,35 @@ export function FeedbackDetailPage() {
   }, [location.search]);
 
   useEffect(() => {
+    if (liveMode) resetLiveSequence();
+  }, [batchId, liveMode]);
+
+  useEffect(() => {
+    if (!liveMode || !batchId) return;
+    const controller = new AbortController();
+    let revision: number | undefined;
+    const check = async () => {
+      try {
+        const { batch } = await getActiveBatch(controller.signal);
+        if (!controller.signal.aborted && batch.id !== batchId) {
+          resetLiveSequence(); setLoaded(null); queueRef.current = null;
+          navigate("/studio/live-display?mode=live", { replace: true });
+        } else if (!controller.signal.aborted) {
+          if (revision !== undefined && revision !== batch.revision) {
+            resetLiveSequence(); queueRef.current = null;
+            setReload(value => value + 1);
+          }
+          revision = batch.revision;
+        }
+      } catch { /* Read errors do not silently select an old or different batch. */ }
+    };
+    const timer = window.setInterval(() => void check(), 4000);
+    window.addEventListener("studio:batch-changed", check);
+    void check();
+    return () => { controller.abort(); window.clearInterval(timer); window.removeEventListener("studio:batch-changed", check); };
+  }, [batchId, liveMode, navigate]);
+
+  useEffect(() => {
     liveCursorRef.current = feedbackId;
     if (currentFeedbackRef.current !== feedbackId) {
       currentFeedbackRef.current = feedbackId;
@@ -169,13 +201,14 @@ export function FeedbackDetailPage() {
       setReplyError(null);
     }
     if (liveMode) {
+      if (!batchId) return;
       // Served from the prefetched window when possible; otherwise the load is deduplicated
       // against any identical request already in flight.
       let cancelled = false;
-      loadLiveFeedback(feedbackId)
+      loadLiveFeedback(feedbackId, batchId)
         .then((value) => {
           if (cancelled) return;
-          setLoaded({ feedbackId, item: value });
+          setLoaded({ feedbackId, batchId, item: value });
           setError(null);
         })
         .catch((reason) => {
@@ -196,17 +229,17 @@ export function FeedbackDetailPage() {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "留言详情加载失败");
       });
     return () => controller.abort();
-  }, [feedbackId, liveMode, reload]);
+  }, [batchId, feedbackId, liveMode, reload]);
 
   // Warm both neighbours as soon as a message is on screen: their ids, their details and
   // their images. Everything is deduplicated inside the cache, so repeating this is cheap.
   useEffect(() => {
     if (!liveMode || !item) return undefined;
     const timer = window.setTimeout(() => {
-      warmLiveSequence({ id: item.id, view: sequence.view, topic: sequence.topic });
+      warmLiveSequence({ id: item.id, view: sequence.view, topic: sequence.topic, batchId });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [item, liveMode, sequence.topic, sequence.view]);
+  }, [batchId, item, liveMode, sequence.topic, sequence.view]);
 
   useEffect(() => {
     if (!liveNotice) return undefined;
@@ -380,14 +413,15 @@ export function FeedbackDetailPage() {
     const { view, topic } = sequence;
     // Only advertise a wait when the neighbour genuinely has to be fetched; a warmed step
     // is synchronous, and flashing "正在切换…" on it would be noise on the stream.
-    if (liveMode && readLiveNeighbor({ id: fromId, view, topic, direction }) === undefined) {
+    if (liveMode && readLiveNeighbor({ id: fromId, view, topic, direction, batchId }) === undefined) {
       setLiveNotice(stepCopy(liveMode, direction).switching);
     }
     try {
-      const adjacentId = await loadLiveNeighbor({ id: fromId, view, topic, direction });
+      const adjacentId = await loadLiveNeighbor({ id: fromId, view, topic, direction, batchId });
       if (!adjacentId) return { status: "end" };
       const nextQuery = new URLSearchParams({ view });
       if (liveMode) nextQuery.set("mode", "live");
+      if (batchId) nextQuery.set("batch", batchId);
       if (topic) nextQuery.set("topic", topic);
       const now = Date.now();
       navigate(`/studio/feedback/${encodeURIComponent(adjacentId)}?${nextQuery}`, {
@@ -408,7 +442,7 @@ export function FeedbackDetailPage() {
         message: reason instanceof Error ? reason.message : stepCopy(liveMode, direction).failure,
       };
     }
-  }, [liveMode, navigate, returnContext, sequence]);
+  }, [batchId, liveMode, navigate, returnContext, sequence]);
 
   const goAdjacent = useCallback(async (direction: StepDirection) => {
     const fromId = liveCursorRef.current;
@@ -507,13 +541,14 @@ export function FeedbackDetailPage() {
     setConfirmOpen(true);
   };
 
+  if (liveMode && !batchId) return <Navigate to="/studio/live-display?mode=live" replace />;
   if (error) {
     return (
       <div className="studio-page">
         <StudioError
           message={error}
           onRetry={() => {
-            invalidateLiveFeedback(feedbackId);
+            invalidateLiveFeedback(feedbackId, batchId);
             setError(null);
             setLoaded(null);
             setReload((value) => value + 1);
@@ -523,13 +558,13 @@ export function FeedbackDetailPage() {
     );
   }
   if (!item) return <StudioLoading label="正在加载留言详情" />;
-  if (liveMode && item.moderationStatus !== "kept" && item.moderationStatus !== "failed") {
+  if (liveMode && item.moderationStatus !== "kept") {
     return (
       <div className="studio-page">
         <StudioError
           message="这条留言尚不能进入直播，请等待筛选完成或返回列表。"
           onRetry={() => {
-            invalidateLiveFeedback(feedbackId);
+            invalidateLiveFeedback(feedbackId, batchId);
             setReload((value) => value + 1);
           }}
         />

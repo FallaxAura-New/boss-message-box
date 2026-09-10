@@ -27,11 +27,13 @@ import { StudioAuthService } from "../services/studio-auth-service";
 import { StudioService } from "../services/studio-service";
 import { createAiModerationService } from "../services/moderation-factory";
 import { readStudioExport } from "../infra/d1-studio-export";
+import { liveRoutes } from "./live";
+import { D1LiveRepository } from "../infra/d1-live-repository";
 
 const SESSION_COOKIE = "__Host-boss_studio_session";
 const SESSION_MAX_AGE = 30 * 24 * 60 * 60;
 
-type StudioBindings = {
+export type StudioBindings = {
   Bindings: Env;
   Variables: {
     studioSession: StudioSessionRecord;
@@ -96,6 +98,7 @@ function services(env: Env): {
       studio: new D1StudioRepository(env.BOSS_MESSAGE_DB),
       images: new R2ImageStorage(env.BOSS_MESSAGE_IMAGES),
       phoneCrypto,
+      live: new D1LiveRepository(env.BOSS_MESSAGE_DB),
     }),
   };
 }
@@ -153,12 +156,15 @@ studioRoutes.post("/login", async (context) => {
 });
 
 studioRoutes.use("*", async (context, next) => {
+  context.header("Cache-Control", "private, no-store");
   const token = getCookie(context, SESSION_COOKIE);
   const session = await services(context.env).auth.authenticate(token, Date.now());
   context.set("studioSession", session);
   context.set("studioToken", token!);
   await next();
 });
+
+studioRoutes.route("/live", liveRoutes);
 
 studioRoutes.get("/session", (context) => {
   const session = context.get("studioSession");
@@ -190,6 +196,7 @@ studioRoutes.put("/session/mode", async (context) => {
   requireSameOrigin(context.req.raw);
   const parsed = studioModeUpdateSchema.safeParse(await context.req.json().catch(() => null));
   if (!parsed.success) throw validationError(parsed.error);
+  if (parsed.data.mode === "live") await new D1LiveRepository(context.env.BOSS_MESSAGE_DB).beginPlayback(Date.now());
   const session = await services(context.env).auth.setMode(
     context.get("studioToken"),
     parsed.data.mode,

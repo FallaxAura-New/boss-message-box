@@ -13,8 +13,7 @@ import {
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { TOPIC_VALUES, type Topic } from "../../../shared/contracts";
-import { getStudioSequenceStart } from "../api";
+import { getActiveBatch, getLiveSequence } from "../live-api";
 import { captureReturnContext, clearLiveReturn, loadLiveReturn, saveLiveReturn } from "../navigation-context";
 import { useStudioSession } from "../use-studio-session";
 import { StudioLoading } from "./AsyncState";
@@ -50,7 +49,9 @@ function StudioNavigation({ afterNavigate }: { afterNavigate?: () => void }) {
       }}
     >
       <span className="studio-nav-label">留言</span>
+      <NavLink to="/studio/routing"><ListChecks aria-hidden="true" weight="bold" />待分流</NavLink>
       <NavLink to="/studio/unreplied"><SquaresFour aria-hidden="true" weight="bold" />未回复</NavLink>
+      <NavLink to="/studio/live-display"><Broadcast aria-hidden="true" weight="bold" />直播展示</NavLink>
       <details
         className="studio-nav-group"
         open={repliedOpen}
@@ -68,6 +69,7 @@ function StudioNavigation({ afterNavigate }: { afterNavigate?: () => void }) {
         </div>
       </details>
       <NavLink to="/studio/filtered"><ShieldWarning aria-hidden="true" weight="bold" />AI 已过滤</NavLink>
+      <NavLink to="/studio/moderation"><ShieldWarning aria-hidden="true" weight="bold" />AI 待处理</NavLink>
       <span className="studio-nav-label">处理</span>
       <NavLink to="/studio/todo"><ListChecks aria-hidden="true" weight="bold" />待办</NavLink>
       <NavLink to="/studio/password"><LockKey aria-hidden="true" weight="bold" />修改密码</NavLink>
@@ -105,7 +107,7 @@ export function StudioShell() {
   const liveMode = liveRequested || mode === "live";
   const liveModeReady = !liveRequested || mode === "live";
   const liveEntryAvailable =
-    location.pathname === "/studio/unreplied" || location.pathname === "/studio/todo";
+    location.pathname === "/studio/live-display" && !searchParams.get("batch");
   const chromeHidden = liveMode && !liveChrome.pinned && !chromeVisible;
 
   const scheduleChromeHide = useCallback(() => {
@@ -218,26 +220,20 @@ export function StudioShell() {
     modeActionRef.current = true;
     try {
       await setMode("live");
-      const view = location.pathname === "/studio/todo" ? "todo" : "unreplied";
-      const requestedTopic = searchParams.get("topic");
-      const topic = requestedTopic && TOPIC_VALUES.some((value) => value === requestedTopic)
-        ? requestedTopic as Topic
-        : null;
+      const view = "live_display";
+      const { batch } = await getActiveBatch();
       // The live run always opens on the earliest message of the current filter and then
       // walks forward in time, so the entry point is resolved on the server rather than from
       // whichever card happened to be under the cursor.
-      const start = await getStudioSequenceStart(view, topic);
+      const start = await getLiveSequence(batch.id);
       if (start.feedbackId) {
-        const next = new URLSearchParams({ mode: "live", view });
-        if (topic) next.set("topic", topic);
+        const next = new URLSearchParams({ mode: "live", view, batch: batch.id });
         modeDestinationRef.current = `/studio/feedback/${encodeURIComponent(start.feedbackId)}`;
         navigate(`${modeDestinationRef.current}?${next}`, {
           state: { returnContext, searchRestore: searchContext },
         });
       } else {
-        const next = new URLSearchParams(searchParams);
-        next.set("mode", "live");
-        setSearchParams(next, { state: locationState });
+        navigate("/studio/live-display?mode=live", { state: locationState });
       }
     } catch (error) {
       setModeError(error instanceof Error ? error.message : "无法进入直播模式");

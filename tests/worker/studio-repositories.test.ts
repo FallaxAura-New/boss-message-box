@@ -30,9 +30,9 @@ async function seedFeedback(input: {
         (id, submission_key, user_id, douyin_nickname, topic, custom_topic, content, internal_status,
          reply_type, reply_content, privacy_policy_version, privacy_agreed_at,
          livestream_policy_version, livestream_agreed_at, moderation_status,
-         created_at, updated_at, is_todo)
+         created_at, updated_at, is_todo, routing_status)
        VALUES (?, ?, ?, '测试昵称', ?, NULL, ?, 'unprocessed', NULL, NULL,
-               'v1', ?, 'v1', ?, ?, ?, ?, ?)`,
+               'v1', ?, 'v1', ?, ?, ?, ?, ?, 'not_selected')`,
     )
     .bind(
       input.id,
@@ -302,9 +302,9 @@ describe("D1 Studio repository", () => {
     await seedFeedback({ id: "80000002-feedback", createdAt: 2, moderationStatus: "filtered" });
     await seedFeedback({ id: "80000001-feedback", createdAt: 1, moderationStatus: "failed" });
     const repository = new D1StudioRepository(env.BOSS_MESSAGE_DB);
-    expect(await repository.findNextFeedback({ currentFeedbackId: "80000004-feedback", view: "unreplied", topic: null })).toBe("80000001-feedback");
+    expect(await repository.findNextFeedback({ currentFeedbackId: "80000004-feedback", view: "unreplied", topic: null })).toBeNull();
     expect(await repository.findNextFeedback({ currentFeedbackId: "80000001-feedback", view: "unreplied", topic: null, direction: "previous" })).toBe("80000004-feedback");
-    expect((await repository.listFeedbacks({ view: "unreplied", page: 1, topic: null, snapshot: null, readyOnly: true })).items.map((item) => item.id)).toEqual(["80000004-feedback", "80000001-feedback"]);
+    expect((await repository.listFeedbacks({ view: "unreplied", page: 1, topic: null, snapshot: null, readyOnly: true })).items.map((item) => item.id)).toEqual(["80000004-feedback"]);
     await expect(repository.appendReply({ id: "blocked-reply", feedbackId: "80000003-feedback", liveMode: true, replyType: "live", content: "不能提前展示", admin: ADMIN_ZD, now: 5 })).rejects.toMatchObject({ code: "FEEDBACK_NOT_READY" });
   });
 

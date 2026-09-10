@@ -40,6 +40,7 @@ export class StudioService {
       studio: StudioRepository;
       images: PrivateImageReader;
       phoneCrypto: PhoneCryptoService | (() => PhoneCryptoService);
+      live?: { activeMembership(feedbackId: string): Promise<boolean> };
     },
   ) {}
 
@@ -50,10 +51,10 @@ export class StudioService {
     snapshot: StudioSnapshot | null;
     session: StudioSessionRecord;
   }): Promise<StudioFeedbackListSuccess> {
-    if (input.session.mode === "live" && input.view !== "unreplied" && input.view !== "todo") {
-      throw new PublicError(403, "FORBIDDEN", "直播展示模式只能查看未回复或待办留言");
+    if (input.session.mode === "live") {
+      throw new PublicError(403, "FORBIDDEN", "直播模式只能读取当前直播批次");
     }
-    return this.dependencies.studio.listFeedbacks({ ...input, readyOnly: input.session.mode === "live" });
+    return this.dependencies.studio.listFeedbacks({ ...input, readyOnly: false });
   }
 
   async search(input: {
@@ -80,12 +81,10 @@ export class StudioService {
     feedbackId: string,
     session?: StudioSessionRecord,
   ): Promise<StudioFeedbackDetailSuccess> {
+    if (session?.mode === "live") throw new PublicError(403, "FORBIDDEN", "请从当前直播批次打开留言");
     const item = await this.dependencies.studio.findFeedback(feedbackId);
     if (!item) throw new PublicError(404, "NOT_FOUND", "留言不存在");
-    if (session?.mode === "live" && !["kept", "failed"].includes(item.moderationStatus)) {
-      throw new PublicError(403, "FORBIDDEN", "这条留言暂时不能进入直播模式，请返回列表");
-    }
-    return { ok: true, item: session?.mode === "live" ? { ...item, shopPhone: null } : item };
+    return { ok: true, item };
   }
 
   async reply(input: {
@@ -96,16 +95,14 @@ export class StudioService {
     session: StudioSessionRecord;
     now: number;
   }): Promise<StudioReplyCreateSuccess> {
+    if (input.session.mode === "live") throw new PublicError(403, "FORBIDDEN", "请退出直播模式后补录回复");
     const feedback = await this.dependencies.studio.getFeedbackSummary(input.feedbackId);
     if (!feedback) throw new PublicError(404, "NOT_FOUND", "留言不存在");
-    if (input.session.mode === "live" && !["kept", "failed"].includes(feedback.moderationStatus)) {
-      throw new PublicError(403, "FORBIDDEN", "这条留言暂时不能在直播模式回复");
-    }
-    const replyType = input.session.mode === "live" ? "live" : input.requestedType;
+    const replyType = input.requestedType;
     if (!replyType) throw new PublicError(400, "VALIDATION_ERROR", "请选择回复方式");
     const result = await this.dependencies.studio.appendReply({
       requestKey: input.requestKey,
-      liveMode: input.session.mode === "live",
+      liveMode: false,
       id: crypto.randomUUID(),
       feedbackId: input.feedbackId,
       replyType,
@@ -172,8 +169,8 @@ export class StudioService {
     direction: "previous" | "next";
     session: StudioSessionRecord;
   }): Promise<StudioNextFeedbackSuccess> {
-    if (input.session.mode === "live" && input.view !== "unreplied" && input.view !== "todo") {
-      throw new PublicError(403, "FORBIDDEN", "直播展示模式只能切换未回复或待办留言");
+    if (input.session.mode === "live") {
+      throw new PublicError(403, "FORBIDDEN", "请使用当前直播批次序列");
     }
     return {
       ok: true,
@@ -184,7 +181,7 @@ export class StudioService {
         direction: input.direction,
         // Live mode runs the queue oldest-first and works forward in time; the normal
         // detail page keeps following the newest-first list order.
-        ascending: input.session.mode === "live",
+        ascending: false,
       }),
     };
   }
@@ -197,16 +194,7 @@ export class StudioService {
     if (input.session.mode !== "live") {
       throw new PublicError(403, "FORBIDDEN", "只有直播展示模式需要读取队列起点");
     }
-    if (input.view !== "unreplied" && input.view !== "todo") {
-      throw new PublicError(403, "FORBIDDEN", "直播展示模式只能查看未回复或待办留言");
-    }
-    return {
-      ok: true,
-      feedbackId: await this.dependencies.studio.findSequenceStart({
-        view: input.view,
-        topic: input.topic,
-      }),
-    };
+    throw new PublicError(403, "FORBIDDEN", "请使用包含批次标识的直播序列接口");
   }
 
   async user(userId: string, session: StudioSessionRecord): Promise<StudioUserDetailSuccess> {
@@ -257,8 +245,7 @@ export class StudioService {
     etag: string;
   }> {
     if (session.mode === "live") {
-      const feedback = await this.dependencies.studio.getFeedbackSummary(feedbackId);
-      if (!feedback || !["kept", "failed"].includes(feedback.moderationStatus)) {
+      if (!await this.dependencies.live?.activeMembership(feedbackId)) {
         throw new PublicError(404, "NOT_FOUND", "图片不存在");
       }
     }

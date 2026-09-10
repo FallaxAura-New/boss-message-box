@@ -6,6 +6,7 @@ async function mockStudio(page) {
   let mode = "normal";
   const item = { id: "11111111-1111-4111-8111-111111111111", feedbackNumber: "11111111", userId: null, nickname: "界面测试", topic: "released_hardware", customTopic: null, content: "测试留言", contentPreview: "测试留言", imageCount: 0, images: [], maskedPhone: null, createdAt: 1000, status: "unreplied", isTodo: false, replyCount: 0, latestReplyAdmin: null, replies: [], moderationStatus: "kept", moderationCategory: "valid_feedback", moderationReason: null };
   const nextItem = { ...item, id: "22222222-2222-4222-8222-222222222222", feedbackNumber: "22222222", nickname: "下一条界面测试", createdAt: 900 };
+  const batch = { id: "00000000-0000-4000-8000-000000000007", status: "active", startedAt: 1, archivedAt: null, count: 1, revision: 0 };
   await page.route("**/api/config", (route) => route.fulfill({ json: { turnstileSiteKey: "1x00000000000000000000AA", privacyPolicyVersion: "2026-09-05", livestreamPolicyVersion: "2026-09-05" } }));
   await page.route("**/api/studio/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -16,6 +17,12 @@ async function mockStudio(page) {
     if (path.endsWith("/logout")) { authenticated = false; return route.fulfill({ json: { ok: true } }); }
     if (path.endsWith("/stats")) return route.fulfill({ json: { ok: true, todayFeedback: 1, unreplied: 1, todo: 0, todayReplied: 0 } });
     if (path.endsWith("/new-feedback-count")) return route.fulfill({ json: { ok: true, count: 0 } });
+    if (path.endsWith("/live/active")) return route.fulfill({ json: { ok: true, batch } });
+    if (path.endsWith("/live/batches")) return route.fulfill({ json: { ok: true, batches: [batch] } });
+    if (path.endsWith("/live/imports")) return route.fulfill({ json: { ok: true, jobs: [] } });
+    if (path.endsWith("/live/entries")) return route.fulfill({ json: { ok: true, batch, items: [{ ...item, sourceType: "public", feedbackId: item.id }], total: 1, page: 1, totalPages: 1 } });
+    if (path.endsWith("/live/sequence")) return route.fulfill({ json: { ok: true, batchId: batch.id, feedbackId: item.id, nextFeedbackId: null } });
+    if (path.endsWith(`/live/entries/${item.id}`)) return route.fulfill({ json: { ok: true, item } });
     if (path.endsWith("/feedbacks")) return route.fulfill({ json: { ok: true, items: [item], pagination: { page: 1, pageSize: 30, total: 1, totalPages: 1 }, snapshot: { createdAt: item.createdAt, id: item.id } } });
     if (path.endsWith("/replies") && route.request().method() === "POST") return route.fulfill({ json: { ok: true, reply: { id: "33333333-3333-4333-8333-333333333333", replyType: route.request().postDataJSON().replyType, content: route.request().postDataJSON().content, adminUsername: "测试管理员", createdAt: 1100 }, status: "replied", isTodo: false, replyCount: 1, latestReplyAdmin: "测试管理员" } });
     if (path.endsWith("/sequence/start")) return route.fulfill({ json: { ok: true, feedbackId: item.id } });
@@ -136,6 +143,7 @@ try {
     }
 
     if (viewport.name === "desktop") {
+      await page.goto(`${baseUrl}/studio/live-display`, { waitUntil: "networkidle" });
       await page.locator(".studio-live-toggle:visible").click();
       await page.getByRole("button", { name: "退出直播模式" }).waitFor();
       if (await page.locator(".studio-search:visible").count()) failures.push("Studio search remains visible in live mode");
@@ -143,7 +151,7 @@ try {
       await page.screenshot({ path: "/private/tmp/boss-message-box-studio-live-desktop.png", fullPage: true });
       await page.getByRole("button", { name: "退出直播模式" }).click();
       await page.locator('.studio-shell[data-mode="normal"]').waitFor();
-      await page.getByRole("heading", { name: "未回复留言" }).waitFor();
+      await page.getByRole("heading", { name: "直播展示" }).waitFor();
     }
 
     await page.goto(`${baseUrl}/studio/password`, { waitUntil: "networkidle" });

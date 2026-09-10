@@ -167,7 +167,7 @@ describe("D1 feedback repository", () => {
 
     expect((await repository.findHistory("测试昵称"))?.[0]).toMatchObject({
       id: feedbackId,
-      status: "filtered",
+      status: "replied",
       replyContent: "已处理",
       replies: [{ id: "public-reply", content: "已处理" }],
     });

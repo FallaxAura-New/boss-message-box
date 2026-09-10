@@ -5,6 +5,7 @@ import type {
 import type { Topic } from "../../shared/contracts";
 import { getNextStudioFeedback, getStudioFeedback } from "./api";
 import { clearLiveImages, preloadLiveImage } from "./live-images";
+import { getLiveEntry, getLiveSequence } from "./live-api";
 
 /**
  * Live-mode sequence cache.
@@ -49,12 +50,13 @@ function store<K, V>(map: Map<K, Stamped<V>>, key: K, value: V, limit: number): 
 }
 
 function neighborKey(input: {
+  batchId?: string;
   id: string;
   view: StudioFeedbackView;
   topic: Topic | null;
   direction: "previous" | "next";
 }): string {
-  return [input.view, input.topic ?? "", input.id, input.direction].join("|");
+  return [input.batchId ?? "", input.view, input.topic ?? "", input.id, input.direction].join("|");
 }
 
 function isVisible(): boolean {
@@ -73,31 +75,33 @@ export function resetLiveSequence(): void {
 }
 
 /** Returns a cached message when it is still fresh, otherwise null. */
-export function readLiveFeedback(feedbackId: string): StudioFeedbackDetail | null {
-  const entry = details.get(feedbackId);
+export function readLiveFeedback(feedbackId: string, batchId?: string): StudioFeedbackDetail | null {
+  const entry = details.get(`${batchId ?? ""}|${feedbackId}`);
   return isFresh(entry, DETAIL_TTL_MS) ? entry.value : null;
 }
 
-export function invalidateLiveFeedback(feedbackId: string): void {
-  details.delete(feedbackId);
+export function invalidateLiveFeedback(feedbackId: string, batchId?: string): void {
+  details.delete(`${batchId ?? ""}|${feedbackId}`);
 }
 
 /** Loads a message, reusing a fresh cache entry or an identical in-flight request. */
-export async function loadLiveFeedback(feedbackId: string): Promise<StudioFeedbackDetail> {
-  const cached = readLiveFeedback(feedbackId);
+export async function loadLiveFeedback(feedbackId: string, batchId?: string): Promise<StudioFeedbackDetail> {
+  const key = `${batchId ?? ""}|${feedbackId}`;
+  const cached = readLiveFeedback(feedbackId, batchId);
   if (cached) return cached;
-  const inFlight = detailTasks.get(feedbackId);
+  const inFlight = detailTasks.get(key);
   if (inFlight) return inFlight;
   const signal = scope.signal;
-  const task = getStudioFeedback(feedbackId, signal).then((response) => {
-    if (!signal.aborted) store(details, feedbackId, response.item, MAX_DETAILS);
+  const task = (batchId ? getLiveEntry(feedbackId, batchId, signal) : getStudioFeedback(feedbackId, signal)).then((response) => {
+    signal.throwIfAborted();
+    store(details, key, response.item, MAX_DETAILS);
     return response.item;
   });
-  detailTasks.set(feedbackId, task);
+  detailTasks.set(key, task);
   try {
     return await task;
   } finally {
-    if (detailTasks.get(feedbackId) === task) detailTasks.delete(feedbackId);
+    if (detailTasks.get(key) === task) detailTasks.delete(key);
   }
 }
 
@@ -105,8 +109,8 @@ function preloadFeedbackImages(item: StudioFeedbackDetail): void {
   for (const image of item.images) void preloadLiveImage(image.viewUrl);
 }
 
-function prefetchLiveFeedback(feedbackId: string): Promise<StudioFeedbackDetail | null> {
-  return loadLiveFeedback(feedbackId)
+function prefetchLiveFeedback(feedbackId: string, batchId?: string): Promise<StudioFeedbackDetail | null> {
+  return loadLiveFeedback(feedbackId, batchId)
     .then((item) => {
       preloadFeedbackImages(item);
       return item;
@@ -116,6 +120,7 @@ function prefetchLiveFeedback(feedbackId: string): Promise<StudioFeedbackDetail 
 
 /** Returns a cached neighbour id: a string, null for "end of sequence", or undefined when unknown. */
 export function readLiveNeighbor(input: {
+  batchId?: string;
   id: string;
   view: StudioFeedbackView;
   topic: Topic | null;
@@ -126,6 +131,7 @@ export function readLiveNeighbor(input: {
 }
 
 export async function loadLiveNeighbor(input: {
+  batchId?: string;
   id: string;
   view: StudioFeedbackView;
   topic: Topic | null;
@@ -137,9 +143,11 @@ export async function loadLiveNeighbor(input: {
   const inFlight = neighborTasks.get(key);
   if (inFlight) return inFlight;
   const signal = scope.signal;
-  const task = getNextStudioFeedback(input.id, input.view, input.topic, input.direction, signal)
+  const task = (input.batchId ? getLiveSequence(input.batchId, input.id, input.direction, signal)
+    : getNextStudioFeedback(input.id, input.view, input.topic, input.direction, signal))
     .then((response) => {
-      if (!signal.aborted) store(neighbors, key, response.nextFeedbackId, MAX_NEIGHBORS);
+      signal.throwIfAborted();
+      store(neighbors, key, response.nextFeedbackId, MAX_NEIGHBORS);
       return response.nextFeedbackId;
     });
   neighborTasks.set(key, task);
@@ -151,6 +159,7 @@ export async function loadLiveNeighbor(input: {
 }
 
 async function warmDirection(input: {
+  batchId?: string;
   id: string;
   view: StudioFeedbackView;
   topic: Topic | null;
@@ -160,10 +169,10 @@ async function warmDirection(input: {
   if (!first) return;
   const [second] = await Promise.all([
     loadLiveNeighbor({ ...input, id: first }).catch(() => null),
-    prefetchLiveFeedback(first),
+    prefetchLiveFeedback(first, input.batchId),
   ]);
   // Two steps ahead keeps a quick double press instant; images still arrive with the detail above.
-  if (second) void prefetchLiveFeedback(second);
+  if (second) void prefetchLiveFeedback(second, input.batchId);
 }
 
 /**
@@ -171,6 +180,7 @@ async function warmDirection(input: {
  * request is deduplicated and cached, so a repeat is almost free.
  */
 export function warmLiveSequence(input: {
+  batchId?: string;
   id: string;
   view: StudioFeedbackView;
   topic: Topic | null;

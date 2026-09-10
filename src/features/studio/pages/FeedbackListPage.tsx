@@ -17,6 +17,9 @@ import { StudioStats } from "../components/StudioStats";
 import { ExportFeedbackControl } from "../components/ExportFeedbackControl";
 
 const VIEW_COPY: Record<StudioFeedbackView, { title: string; description: string; empty: string }> = {
+  routing: { title: "待分流", description: "审核通过的留言，先选择是否加入直播展示。", empty: "目前没有等待分流的留言。" },
+  moderation: { title: "AI 待处理", description: "等待审核或审核失败的留言，可在详情中重试或人工恢复。", empty: "目前没有待审核或审核失败的留言。" },
+  live_display: { title: "直播展示", description: "当前直播批次中的留言。", empty: "当前直播批次为空。" },
   unreplied: { title: "未回复留言", description: "最新提交排在最前，每页显示 30 条。", empty: "目前没有等待回复的留言。" },
   replied: { title: "全部已回复", description: "查看所有至少有一条回复的留言。", empty: "目前还没有已回复留言。" },
   live: { title: "直播回复", description: "包含至少一条直播回复的留言。", empty: "目前还没有直播回复。" },
@@ -50,6 +53,7 @@ export function FeedbackListPage({ view }: { view: StudioFeedbackView }) {
   const [reload, setReload] = useState(0);
   const [todoBusy, setTodoBusy] = useState<string | null>(null);
   const [newCount, setNewCount] = useState(0);
+  const [routingNotice, setRoutingNotice] = useState<string | null>(null);
   const scrollAfterLoad = useRef(false);
   const restoreContext = (location.state as ListLocationState | null)?.restoreContext ?? null;
   const restoredRef = useRef(false);
@@ -206,6 +210,8 @@ export function FeedbackListPage({ view }: { view: StudioFeedbackView }) {
         </div>
       )}
 
+      {routingNotice && <p role="status">{routingNotice}</p>}
+
       {error && <StudioError message={error} onRetry={() => { setError(null); setResult(null); setReload((value) => value + 1); }} />}
       {!error && !result && <StudioLoading label="正在加载留言" />}
       {!error && result?.items.length === 0 && (
@@ -223,6 +229,13 @@ export function FeedbackListPage({ view }: { view: StudioFeedbackView }) {
               liveMode={liveMode}
               todoBusy={todoBusy === item.id}
               onTodoChange={(selected) => void toggleTodo(selected)}
+              onRouted={(message) => {
+                setRoutingNotice(message);
+                setResult(current => current ? { ...current,
+                  items: current.items.filter(candidate => candidate.id !== item.id),
+                  pagination: { ...current.pagination, total: Math.max(0, current.pagination.total - 1) },
+                } : current);
+              }}
               listContext={{ view, topic }}
               returnContext={captureReturnContext(
                 currentUrl,

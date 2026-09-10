@@ -6,6 +6,7 @@ import { FeedbackDetailPage } from "../../src/features/studio/pages/FeedbackDeta
 import { resetLiveSequence } from "../../src/features/studio/live-sequence";
 
 const feedbackId = "22222222-2222-4222-8222-222222222222";
+const batchId = "00000000-0000-4000-8000-000000000007";
 const detail = {
   ok: true,
   item: {
@@ -55,7 +56,7 @@ afterEach(() => {
 function renderDetail(liveMode: boolean) {
   vi.stubGlobal("scrollTo", vi.fn());
   return render(
-    <MemoryRouter initialEntries={[`/studio/feedback/${feedbackId}${liveMode ? "?mode=live" : ""}`]}>
+    <MemoryRouter initialEntries={[`/studio/feedback/${feedbackId}${liveMode ? `?mode=live&view=live_display&batch=${batchId}` : ""}`]}>
       <Routes>
         <Route element={<Outlet context={{ liveMode }} />}>
           <Route path="/studio/feedback/:feedbackId" element={<FeedbackDetailPage />} />
@@ -68,6 +69,9 @@ function renderDetail(liveMode: boolean) {
 function mockDetailApi() {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+    if (url.includes("/live/active")) return Response.json({ ok: true, batch: { id: batchId } });
+    if (url.includes("/live/sequence?")) return Response.json({ ok: true, nextFeedbackId: null, batchId });
+    if (url.includes(`/live/entries/${feedbackId}?`)) return Response.json(detail);
     if ((init?.method ?? "GET") === "POST") {
       const body = JSON.parse(String(init?.body)) as { content: string; replyType?: string };
       return new Response(JSON.stringify({
@@ -160,7 +164,7 @@ describe("Studio reply interaction", () => {
     const fetchMock = mockDetailApi();
     const original = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (input, init) => {
-      if (String(input).endsWith(feedbackId)) {
+      if (String(input).includes(`/live/entries/${feedbackId}?`)) {
         return Response.json({ ...detail, item: {
           ...detail.item,
           replies: [{ id: "reply", replyType: "live", content: "不应出现在直播画面的历史回复", createdAt: 1000, adminUsername: "zd" }],
@@ -207,7 +211,7 @@ describe("Studio reply interaction", () => {
   it("reports a failed live step and keeps the current message on screen", async () => {
     const fetchMock = mockDetailApi();
     fetchMock.mockImplementation(async (input) => {
-      if (String(input).includes("/next?")) throw new TypeError("Failed to fetch");
+      if (String(input).includes("/live/sequence?")) throw new TypeError("Failed to fetch");
       return Response.json(detail);
     });
     const user = userEvent.setup();
@@ -218,21 +222,21 @@ describe("Studio reply interaction", () => {
     expect(screen.getByRole("heading", { name: "测试昵称" })).toBeInTheDocument();
   });
 
-  it("switches with left and right arrow keys while retaining the live sequence and topic", async () => {
+  it("switches with left and right arrow keys while retaining the live batch", async () => {
     const nextId = "44444444-4444-4444-8444-444444444444";
     const fetchMock = mockDetailApi();
     const original = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (input, init) => {
       const url = String(input);
-      if (url.includes("/next?") && url.includes("direction=next")) return Response.json({ ok: true, nextFeedbackId: nextId });
-      if (url.includes("/next?") && url.includes("direction=previous")) return Response.json({ ok: true, nextFeedbackId: feedbackId });
-      if (url.endsWith(nextId)) return Response.json({ ...detail, item: { ...detail.item, id: nextId, nickname: "下一位鹏友" } });
+      if (url.includes("/live/sequence?") && url.includes("direction=next")) return Response.json({ ok: true, nextFeedbackId: nextId });
+      if (url.includes("/live/sequence?") && url.includes("direction=previous")) return Response.json({ ok: true, nextFeedbackId: feedbackId });
+      if (url.includes(`/live/entries/${nextId}?`)) return Response.json({ ...detail, item: { ...detail.item, id: nextId, nickname: "下一位鹏友" } });
       return original(input, init);
     });
     vi.stubGlobal("scrollTo", vi.fn());
     const user = userEvent.setup();
     render(
-      <MemoryRouter initialEntries={[`/studio/feedback/${feedbackId}?mode=live&view=todo&topic=appeal`]}>
+      <MemoryRouter initialEntries={[`/studio/feedback/${feedbackId}?mode=live&view=live_display&batch=${batchId}`]}>
         <Routes><Route element={<Outlet context={{ liveMode: true }} />}>
           <Route path="/studio/feedback/:feedbackId" element={<FeedbackDetailPage />} />
         </Route></Routes>
@@ -244,11 +248,11 @@ describe("Studio reply interaction", () => {
     await user.keyboard("{ArrowLeft}");
     await screen.findByRole("heading", { name: "测试昵称" });
 
-    const navigationCalls = fetchMock.mock.calls.filter(([input]) => String(input).includes("/next?"));
+    const navigationCalls = fetchMock.mock.calls.filter(([input]) => String(input).includes("/live/sequence?"));
     expect(navigationCalls.length).toBeGreaterThan(0);
     for (const [input] of navigationCalls) {
-      expect(String(input)).toContain("view=todo");
-      expect(String(input)).toContain("topic=appeal");
+      expect(String(input)).toContain(`batchId=${batchId}`);
+      expect(String(input)).not.toContain("view=todo");
     }
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });
@@ -260,11 +264,11 @@ describe("Studio reply interaction", () => {
     const fetchMock = mockDetailApi();
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
-      if (url.includes("/next?")) {
-        const current = url.match(/feedbacks\/([0-9a-f-]+)\/next/)?.[1] ?? "";
+      if (url.includes("/live/sequence?")) {
+        const current = new URL(url, "http://localhost").searchParams.get("currentId") ?? "";
         return Response.json({ ok: true, nextFeedbackId: chain[current] ?? null });
       }
-      const id = url.match(/feedbacks\/([0-9a-f-]+)$/)?.[1] ?? feedbackId;
+      const id = url.match(/entries\/([0-9a-f-]+)\?/)?.[1] ?? feedbackId;
       return Response.json({ ...detail, item: { ...detail.item, id, nickname: id === second ? "第二条" : id === third ? "第三条" : "测试昵称" } });
     });
     const user = userEvent.setup();
@@ -283,12 +287,12 @@ describe("Studio reply interaction", () => {
     const original = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (input, init) => {
       const url = String(input);
-      if (url.includes("/next?") && url.includes("direction=next")) return Response.json({ ok: true, nextFeedbackId: nextId });
-      if (url.includes("/next?")) return Response.json({ ok: true, nextFeedbackId: null });
-      if (url.endsWith(nextId)) return Response.json({ ...detail, item: { ...detail.item, id: nextId, nickname: "下一位鹏友" } });
+      if (url.includes("/live/sequence?") && url.includes("direction=next")) return Response.json({ ok: true, nextFeedbackId: nextId });
+      if (url.includes("/live/sequence?")) return Response.json({ ok: true, nextFeedbackId: null });
+      if (url.includes(`/live/entries/${nextId}?`)) return Response.json({ ...detail, item: { ...detail.item, id: nextId, nickname: "下一位鹏友" } });
       return original(input, init);
     });
-    const detailCalls = () => fetchMock.mock.calls.filter(([input]) => String(input).endsWith(nextId)).length;
+    const detailCalls = () => fetchMock.mock.calls.filter(([input]) => String(input).includes(`/live/entries/${nextId}?`)).length;
     const user = userEvent.setup();
     renderDetail(true);
     await screen.findByRole("heading", { name: "测试昵称" });

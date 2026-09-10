@@ -4,6 +4,7 @@ import { TOPIC_LABELS } from "../../../shared/contracts";
 import type { StudioFeedbackSummary, StudioFeedbackView } from "../../../shared/studio-contracts";
 import type { Topic } from "../../../shared/contracts";
 import type { StudioReturnContext } from "../navigation-context";
+import { RoutingActions } from "./RoutingActions";
 
 function formatDate(timestamp: number): string {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -23,6 +24,7 @@ interface FeedbackCardProps {
   todoBusy?: boolean;
   onTodoChange: (item: StudioFeedbackSummary) => void;
   listContext?: { view: StudioFeedbackView; topic: Topic | null };
+  onRouted?: (message: string) => void;
 }
 
 export function FeedbackCard({
@@ -33,6 +35,7 @@ export function FeedbackCard({
   todoBusy = false,
   onTodoChange,
   listContext,
+  onRouted,
 }: FeedbackCardProps) {
   const detailQuery = new URLSearchParams();
   if (liveMode) detailQuery.set("mode", "live");
@@ -58,6 +61,9 @@ export function FeedbackCard({
           )}
           <code>#{item.feedbackNumber}</code>
         </div>
+        {!liveMode && listContext?.view === "unreplied" && <p className="studio-live-membership" aria-label="直播展示资格">
+          {item.liveSelected ? "已加入直播展示" : "未加入直播展示"}
+        </p>}
         <dl className="studio-card-fields">
           <div><dt>抖音昵称</dt><dd>{item.nickname}</dd></div>
           <div><dt>主题</dt><dd>{title}</dd></div>
@@ -74,7 +80,8 @@ export function FeedbackCard({
           </div>
         )}
       </Link>
-      {!liveMode && showTodoAction && item.status === "unreplied" && (
+      {!liveMode && listContext?.view === "routing" && onRouted && <RoutingActions feedbackId={item.id} onRouted={onRouted} />}
+      {!liveMode && listContext?.view !== "routing" && showTodoAction && item.status === "unreplied" && (
         <button
           type="button"
           className={`studio-todo-button ${item.isTodo ? "is-active" : ""}`}

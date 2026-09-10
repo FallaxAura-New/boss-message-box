@@ -7,6 +7,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { PasswordPage } from "./pages/PasswordPage";
 import { SearchPage } from "./pages/SearchPage";
 import { UserDetailPage } from "./pages/UserDetailPage";
+import { LiveDisplayPage } from "./pages/LiveDisplayPage";
 import { StudioSessionProvider } from "./session";
 import { useStudioSession } from "./use-studio-session";
 import "./studio.css";
@@ -35,6 +36,9 @@ export function StudioApp() {
         <Route element={<SessionGate />}>
           <Route index element={<Navigate to="/studio/unreplied" replace />} />
           <Route element={<StudioShell />}>
+            <Route path="routing" element={<FeedbackListPage view="routing" />} />
+            <Route path="moderation" element={<FeedbackListPage view="moderation" />} />
+            <Route path="live-display" element={<LiveDisplayPage />} />
             <Route path="unreplied" element={<FeedbackListPage view="unreplied" />} />
             <Route path="replied" element={<Navigate to="/studio/replied/all" replace />} />
             <Route path="replied/all" element={<FeedbackListPage view="replied" />} />

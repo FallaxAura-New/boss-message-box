@@ -8,6 +8,9 @@ const passwordSizeMessage = "密码超过 1024 字符的技术上限";
 export const studioModeSchema = z.enum(["normal", "live"]);
 export const studioReplyTypeSchema = z.enum(["live", "message"]);
 export const studioFeedbackViewSchema = z.enum([
+  "routing",
+  "moderation",
+  "live_display",
   "unreplied",
   "replied",
   "live",
@@ -69,6 +72,8 @@ export interface StudioReply {
 }
 
 export interface StudioFeedbackSummary {
+  routingStatus?: "pending" | "selected" | "not_selected";
+  liveSelected?: boolean;
   id: string;
   feedbackNumber: string;
   userId: string | null;

@@ -82,6 +82,24 @@ afterEach(() => {
 });
 
 describe("live sequence cache", () => {
+  it("keys details and cursors by batch and clears both on rotation", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      const batchId = url.searchParams.get("batchId");
+      return Response.json(url.pathname.endsWith("/sequence") ? { ok: true, nextFeedbackId: B, batchId } : { ok: true, item: { ...detail(A), nickname: batchId }, batchId });
+    });
+    vi.stubGlobal("fetch", fetch);
+    await loadLiveFeedback(A, "batch-a");
+    expect(readLiveFeedback(A, "batch-b")).toBeNull();
+    await loadLiveFeedback(A, "batch-b");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(readLiveFeedback(A, "batch-a")?.nickname).toBe("batch-a");
+    await loadLiveNeighbor({ id: A, view: "live_display", topic: null, direction: "next", batchId: "batch-a" });
+    expect(readLiveNeighbor({ id: A, view: "live_display", topic: null, direction: "next", batchId: "batch-b" })).toBeUndefined();
+    resetLiveSequence();
+    expect(readLiveFeedback(A, "batch-a")).toBeNull();
+    expect(readLiveFeedback(A, "batch-b")).toBeNull();
+  });
   it("serves a repeated message from memory instead of the network", async () => {
     const fixture = mockApi();
     const first = await loadLiveFeedback(A);

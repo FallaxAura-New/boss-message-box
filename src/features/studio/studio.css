@@ -319,6 +319,26 @@
 .studio-page-heading h2 { margin-block-start: var(--space-1); font-size: clamp(1.75rem, 3vw, 2.4rem); letter-spacing: -0.04em; }
 .studio-page-heading p { max-width: 42rem; margin-block-start: var(--space-2); color: var(--color-text-secondary); }
 .studio-list-controls { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.studio-live-tools { margin-block-end: var(--space-5); }
+.studio-live-display-page .studio-page-heading { flex-wrap: wrap; }
+.studio-live-display-page .studio-page-heading > div:first-child { flex: 1 1 24rem; }
+.studio-live-display-page .studio-topic-filter { white-space: nowrap; max-width: 100%; }
+.studio-live-display-page .studio-topic-filter select { min-width: 0; max-width: 100%; }
+.studio-live-display-page > .studio-total { width: fit-content; margin-block: var(--space-4); }
+.studio-live-membership { color: var(--color-text-secondary); font-size: var(--type-body); }
+.studio-routing-actions { padding: 0 var(--space-5) var(--space-5); }
+.studio-routing-actions .studio-list-controls { justify-content: flex-start; }
+.studio-live-entry-content { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--type-body); }
+.studio-import-dialog { max-height: calc(100dvh - var(--space-6)); overflow: hidden; }
+.studio-import-dialog[open] { display: flex; flex-direction: column; }
+.studio-import-body { overflow-y: auto; min-height: 0; }
+.studio-import-body input { max-width: 100%; min-width: 0; font: inherit; }
+.studio-import-rows { list-style: none; padding: 0; display: grid; gap: var(--space-4); }
+.studio-import-rows li { overflow-wrap: anywhere; padding-block: var(--space-2); }
+.studio-import-rows p { white-space: pre-wrap; }
+.studio-import-progress { margin-block-start: var(--space-6); overflow-wrap: anywhere; }
+.studio-import-progress h2 { font-size: var(--type-h3); }
+.studio-import-dialog .studio-confirm-actions { flex-shrink: 0; }
 .studio-topic-filter { display: flex; align-items: center; min-height: 2.5rem; gap: var(--space-2); color: var(--color-text-muted); font-size: var(--type-caption); font-weight: 700; }
 .studio-topic-filter > svg { width: 1rem; height: 1rem; flex: 0 0 auto; }
 .studio-topic-filter select { min-height: 2.5rem; padding: 0 var(--space-8) 0 var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-bg-deep); color: var(--color-text-secondary); font-size: var(--type-caption); transition: border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }

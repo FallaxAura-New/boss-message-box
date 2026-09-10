@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../../worker/env";
 import { WebCryptoPhoneService } from "../../worker/security/crypto";
 import { hashPassword } from "../../worker/security/password";
+import { D1LiveRepository } from "../../worker/infra/d1-live-repository";
 
 const ORIGIN = "https://message.example";
 const testEnv = env as unknown as Env;
@@ -56,9 +57,9 @@ async function seedFeedbackWithImage(): Promise<{
           (id, submission_key, user_id, douyin_nickname, topic, custom_topic, content, internal_status,
            reply_type, reply_content, privacy_policy_version, privacy_agreed_at,
            livestream_policy_version, livestream_agreed_at, moderation_status,
-           created_at, updated_at, is_todo)
+           created_at, updated_at, is_todo, routing_status)
          VALUES (?, ?, ?, '接口测试昵称', 'appeal', NULL, '需要处理的留言', 'unprocessed', NULL, NULL,
-                 'v1', ?, 'v1', ?, 'kept', ?, ?, 1)`,
+                 'v1', ?, 'v1', ?, 'kept', ?, ?, 1, 'not_selected')`,
       )
       .bind(feedbackId, crypto.randomUUID(), userId, now, now, now, now),
     testEnv.BOSS_MESSAGE_DB
@@ -82,6 +83,8 @@ describe("Studio API", () => {
       await testEnv.BOSS_MESSAGE_IMAGES.delete(objects.objects.map((object) => object.key));
     }
     await testEnv.BOSS_MESSAGE_DB.batch([
+      testEnv.BOSS_MESSAGE_DB.prepare("DELETE FROM live_audit_logs"),
+      testEnv.BOSS_MESSAGE_DB.prepare("DELETE FROM live_entries"),
       testEnv.BOSS_MESSAGE_DB.prepare("DELETE FROM audit_logs"),
       testEnv.BOSS_MESSAGE_DB.prepare("DELETE FROM feedback_replies"),
       testEnv.BOSS_MESSAGE_DB.prepare("DELETE FROM feedback_images"),
@@ -139,11 +142,15 @@ describe("Studio API", () => {
     expect(last?.headers.get("Retry-After")).toMatch(/^\d+$/u);
   });
 
-  it("enforces live-mode privacy, forces live replies, and serves only authenticated R2 images", async () => {
+  it("enforces live-mode privacy, forbids live writes, and serves only selected authenticated R2 images", async () => {
     const seeded = await seedFeedbackWithImage();
     await testEnv.BOSS_MESSAGE_DB.prepare("UPDATE feedback SET shop_phone = ? WHERE id = ?").bind("+853 6612-3456", seeded.feedbackId).run();
     const { cookie } = await login();
     const authenticated = { Cookie: cookie };
+    const liveRepo = new D1LiveRepository(testEnv.BOSS_MESSAGE_DB);
+    const batch = await liveRepo.batch();
+    await liveRepo.route({ feedbackId: seeded.feedbackId, batchId: batch.id, requestKey: crypto.randomUUID(), routingStatus: "selected", adminId: "admin-zd", now: Date.now() });
+    const liveEntry = (await liveRepo.list(batch.id, 1)).items[0]!;
 
     const appealList = await api("/api/studio/feedbacks?view=unreplied&topic=appeal", {
       headers: authenticated,
@@ -217,15 +224,14 @@ describe("Studio API", () => {
     });
     expect(mode.status).toBe(200);
     expect((await mode.json() as { mode: string }).mode).toBe("live");
-    const liveDetail = await api(`/api/studio/feedbacks/${seeded.feedbackId}`, { headers: authenticated });
+    const liveDetail = await api(`/api/studio/live/entries/${liveEntry.id}?batchId=${batch.id}`, { headers: authenticated });
     const liveDetailText = await liveDetail.text();
     expect(JSON.parse(liveDetailText).item.shopPhone).toBeNull();
     expect(liveDetailText).not.toContain("+853 6612-3456");
     const previous = await api(`/api/studio/feedbacks/${seeded.feedbackId}/next?view=unreplied&direction=previous`, {
       headers: authenticated,
     });
-    expect(previous.status).toBe(200);
-    expect(await previous.json()).toEqual({ ok: true, nextFeedbackId: null });
+    expect(previous.status).toBe(403);
     expect((await api(`/api/studio/feedbacks/${seeded.feedbackId}/next?view=replied`, {
       headers: authenticated,
     })).status).toBe(403);
@@ -246,8 +252,7 @@ describe("Studio API", () => {
       headers: authenticated,
       body: JSON.stringify({ replyType: "message", content: "直播现场回复", adminId: "admin-fa" }),
     });
-    expect(reply.status).toBe(200);
-    expect(await reply.json()).toMatchObject({ ok: true, reply: { replyType: "live", content: "直播现场回复" }, isTodo: false });
+    expect(reply.status).toBe(403);
 
     const persistedReplies = await testEnv.BOSS_MESSAGE_DB
       .prepare("SELECT reply_type, admin_id FROM feedback_replies WHERE feedback_id = ? ORDER BY created_at, id")
@@ -255,7 +260,6 @@ describe("Studio API", () => {
       .all<{ reply_type: string; admin_id: string }>();
     expect(persistedReplies.results).toEqual([
       { reply_type: "message", admin_id: "admin-zd" },
-      { reply_type: "live", admin_id: "admin-zd" },
     ]);
 
     const publicHistory = await api("/api/history", {
@@ -265,7 +269,7 @@ describe("Studio API", () => {
     const publicHistoryText = await publicHistory.text();
     expect(publicHistory.status).toBe(200);
     expect(publicHistoryText).toContain('"replyType":"message"');
-    expect(publicHistoryText).toContain('"replyType":"live"');
+    expect(publicHistoryText).not.toContain('"replyType":"live"');
     expect(publicHistoryText).not.toContain("admin-zd");
     expect(publicHistoryText).not.toContain("shopPhone");
     expect(publicHistoryText).not.toContain("+853 6612-3456");
@@ -302,6 +306,8 @@ describe("Studio API", () => {
       .bind(userId)
       .run();
     const ids = ["30000001", "30000002", "30000003"].map((suffix) => `${suffix}-0000-4000-8000-000000000000`);
+    const liveRepo = new D1LiveRepository(testEnv.BOSS_MESSAGE_DB);
+    const batch = await liveRepo.batch();
     for (const [index, id] of ids.entries()) {
       await testEnv.BOSS_MESSAGE_DB
         .prepare(
@@ -315,7 +321,9 @@ describe("Studio API", () => {
         )
         .bind(id, `submission-${id}`, userId, `第 ${index + 1} 条`, index + 1, index + 1, index + 1, index + 1)
         .run();
+      await liveRepo.route({ feedbackId: id, batchId: batch.id, requestKey: crypto.randomUUID(), routingStatus: "selected", adminId: "admin-zd", now: Date.now() });
     }
+    const entries = (await liveRepo.list(batch.id, 1)).items;
 
     expect((await api("/api/studio/feedbacks/sequence/start?view=unreplied", { headers: authenticated })).status).toBe(403);
 
@@ -325,15 +333,15 @@ describe("Studio API", () => {
       body: JSON.stringify({ mode: "live" }),
     });
 
-    const start = await api("/api/studio/feedbacks/sequence/start?view=unreplied", { headers: authenticated });
+    const start = await api(`/api/studio/live/sequence?batchId=${batch.id}`, { headers: authenticated });
     expect(start.status).toBe(200);
-    expect(await start.json()).toEqual({ ok: true, feedbackId: ids[0] });
+    expect(await start.json()).toMatchObject({ ok: true, feedbackId: entries[0]!.id, batchId: batch.id });
 
     // Forward in time from the earliest entry, and the other way out of the queue.
-    const forward = await api(`/api/studio/feedbacks/${ids[0]}/next?view=unreplied&direction=next`, { headers: authenticated });
-    expect(await forward.json()).toEqual({ ok: true, nextFeedbackId: ids[1] });
-    const backward = await api(`/api/studio/feedbacks/${ids[0]}/next?view=unreplied&direction=previous`, { headers: authenticated });
-    expect(await backward.json()).toEqual({ ok: true, nextFeedbackId: null });
+    const forward = await api(`/api/studio/live/sequence?batchId=${batch.id}&currentId=${entries[0]!.id}&direction=next`, { headers: authenticated });
+    expect(await forward.json()).toMatchObject({ ok: true, nextFeedbackId: entries[1]!.id, batchId: batch.id });
+    const backward = await api(`/api/studio/live/sequence?batchId=${batch.id}&currentId=${entries[0]!.id}&direction=previous`, { headers: authenticated });
+    expect(await backward.json()).toMatchObject({ ok: true, nextFeedbackId: null, batchId: batch.id });
     expect((await api("/api/studio/feedbacks/sequence/start?view=replied", { headers: authenticated })).status).toBe(403);
 
     await api("/api/studio/session/mode", {
@@ -402,7 +410,7 @@ describe("Studio API", () => {
     const headers = { Cookie: cookie };
     await testEnv.BOSS_MESSAGE_DB.prepare("UPDATE feedback SET moderation_status = 'pending' WHERE id = ?").bind(seeded.feedbackId).run();
     await api("/api/studio/session/mode", { method: "PUT", headers, body: JSON.stringify({ mode: "live" }) });
-    expect(await (await api("/api/studio/feedbacks", { headers })).json()).toMatchObject({ items: [] });
+    expect((await api("/api/studio/feedbacks", { headers })).status).toBe(403);
     expect((await api(`/api/studio/feedbacks/${seeded.feedbackId}`, { headers })).status).toBe(403);
     expect((await api(`/api/studio/feedbacks/${seeded.feedbackId}/images/${seeded.imageId}`, { headers })).status).toBe(404);
     expect((await api(`/api/studio/feedbacks/${seeded.feedbackId}/replies`, {

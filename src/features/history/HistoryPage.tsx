@@ -97,7 +97,7 @@ export function HistoryPage() {
               <li key={item.id} className="message-card">
                 <div className="message-meta">
                   <span className={`status status--${item.status}`}>
-                    {item.status === "filtered" ? "已过滤" : item.status === "replied" ? "已回复" : "未回复"}
+                    {item.status === "replied" ? "已回复" : "未回复"}
                   </span>
                   <span><Clock aria-hidden="true" /> {formatDate(item.createdAt)}</span>
                 </div>
