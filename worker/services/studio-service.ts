@@ -9,6 +9,7 @@ import {
   type StudioReplyCreateSuccess,
   type StudioReplyType,
   type StudioSearchSuccess,
+  type StudioSequenceStartSuccess,
   type StudioSnapshot,
   type StudioStatsSuccess,
   type StudioTodoSuccess,
@@ -181,6 +182,29 @@ export class StudioService {
         view: input.view,
         topic: input.topic,
         direction: input.direction,
+        // Live mode runs the queue oldest-first and works forward in time; the normal
+        // detail page keeps following the newest-first list order.
+        ascending: input.session.mode === "live",
+      }),
+    };
+  }
+
+  async sequenceStart(input: {
+    view: StudioFeedbackView;
+    topic: Topic | null;
+    session: StudioSessionRecord;
+  }): Promise<StudioSequenceStartSuccess> {
+    if (input.session.mode !== "live") {
+      throw new PublicError(403, "FORBIDDEN", "只有直播展示模式需要读取队列起点");
+    }
+    if (input.view !== "unreplied" && input.view !== "todo") {
+      throw new PublicError(403, "FORBIDDEN", "直播展示模式只能查看未回复或待办留言");
+    }
+    return {
+      ok: true,
+      feedbackId: await this.dependencies.studio.findSequenceStart({
+        view: input.view,
+        topic: input.topic,
       }),
     };
   }

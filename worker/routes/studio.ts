@@ -65,6 +65,10 @@ const nextFeedbackQuerySchema = z.object({
   topic: topicSchema.optional(),
   direction: z.enum(["previous", "next"]).optional().default("next"),
 });
+const sequenceStartQuerySchema = z.object({
+  view: studioFeedbackViewSchema,
+  topic: topicSchema.optional(),
+});
 const exportCursorSchema = z.object({ createdAt: z.number().int().nonnegative(), id: z.string().uuid() });
 const exportQuerySchema = z.object({
   view: z.union([studioFeedbackViewSchema, z.literal("all")]),
@@ -246,6 +250,18 @@ studioRoutes.get("/feedbacks/:feedbackId", async (context) => {
   const feedbackId = parseId(feedbackIdSchema, context.req.param("feedbackId"));
   return context.json(
     await services(context.env).studio.feedback(feedbackId, context.get("studioSession")),
+  );
+});
+
+studioRoutes.get("/feedbacks/sequence/start", async (context) => {
+  const parsed = sequenceStartQuerySchema.safeParse(context.req.query());
+  if (!parsed.success) throw validationError(parsed.error);
+  return context.json(
+    await services(context.env).studio.sequenceStart({
+      view: parsed.data.view,
+      topic: parsed.data.topic ?? null,
+      session: context.get("studioSession"),
+    }),
   );
 });
 

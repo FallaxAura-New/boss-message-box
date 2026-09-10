@@ -18,6 +18,7 @@ async function mockStudio(page) {
     if (path.endsWith("/new-feedback-count")) return route.fulfill({ json: { ok: true, count: 0 } });
     if (path.endsWith("/feedbacks")) return route.fulfill({ json: { ok: true, items: [item], pagination: { page: 1, pageSize: 30, total: 1, totalPages: 1 }, snapshot: { createdAt: item.createdAt, id: item.id } } });
     if (path.endsWith("/replies") && route.request().method() === "POST") return route.fulfill({ json: { ok: true, reply: { id: "33333333-3333-4333-8333-333333333333", replyType: route.request().postDataJSON().replyType, content: route.request().postDataJSON().content, adminUsername: "测试管理员", createdAt: 1100 }, status: "replied", isTodo: false, replyCount: 1, latestReplyAdmin: "测试管理员" } });
+    if (path.endsWith("/sequence/start")) return route.fulfill({ json: { ok: true, feedbackId: item.id } });
     if (path.endsWith("/next")) return route.fulfill({ json: { ok: true, nextFeedbackId: path.includes(item.id) ? nextItem.id : null } });
     if (path.endsWith(`/feedbacks/${item.id}`)) return route.fulfill({ json: { ok: true, item } });
     if (path.endsWith(`/feedbacks/${nextItem.id}`)) return route.fulfill({ json: { ok: true, item: nextItem } });

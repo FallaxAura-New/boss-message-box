@@ -197,7 +197,8 @@ describe("Studio reply interaction", () => {
     renderDetail(true);
     await screen.findByRole("heading", { name: "测试昵称" });
     await user.keyboard("{ArrowRight}");
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已经是最后一条留言了"));
+    // Live mode runs oldest-first, so running out of steps means the newest message was reached.
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已经是最新的一条留言了"));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "下一条" })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
@@ -273,7 +274,7 @@ describe("Studio reply interaction", () => {
     await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}");
     await screen.findByRole("heading", { name: "第三条" });
     // The third press lands past the end of the sequence, so it reports the boundary.
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已经是最后一条留言了"));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已经是最新的一条留言了"));
   });
 
   it("renders a warmed neighbour without asking for its detail again", async () => {

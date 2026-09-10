@@ -114,6 +114,13 @@ export interface StudioRepository {
     view: StudioFeedbackView;
     topic: Topic | null;
     direction?: "previous" | "next";
+    /** Walks the queue oldest-first instead of following the newest-first list. */
+    ascending?: boolean;
+  }): Promise<string | null>;
+  /** Oldest live-eligible entry of a view, used as the starting point of the live run. */
+  findSequenceStart(input: {
+    view: StudioFeedbackView;
+    topic: Topic | null;
   }): Promise<string | null>;
 }
 

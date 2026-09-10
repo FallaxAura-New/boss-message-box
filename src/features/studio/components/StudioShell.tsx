@@ -13,6 +13,8 @@ import {
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { TOPIC_VALUES, type Topic } from "../../../shared/contracts";
+import { getStudioSequenceStart } from "../api";
 import { captureReturnContext, clearLiveReturn, loadLiveReturn, saveLiveReturn } from "../navigation-context";
 import { useStudioSession } from "../use-studio-session";
 import { StudioLoading } from "./AsyncState";
@@ -216,12 +218,19 @@ export function StudioShell() {
     modeActionRef.current = true;
     try {
       await setMode("live");
-      if (anchorId) {
-        const view = location.pathname === "/studio/todo" ? "todo" : "unreplied";
+      const view = location.pathname === "/studio/todo" ? "todo" : "unreplied";
+      const requestedTopic = searchParams.get("topic");
+      const topic = requestedTopic && TOPIC_VALUES.some((value) => value === requestedTopic)
+        ? requestedTopic as Topic
+        : null;
+      // The live run always opens on the earliest message of the current filter and then
+      // walks forward in time, so the entry point is resolved on the server rather than from
+      // whichever card happened to be under the cursor.
+      const start = await getStudioSequenceStart(view, topic);
+      if (start.feedbackId) {
         const next = new URLSearchParams({ mode: "live", view });
-        const topic = searchParams.get("topic");
         if (topic) next.set("topic", topic);
-        modeDestinationRef.current = `/studio/feedback/${encodeURIComponent(anchorId)}`;
+        modeDestinationRef.current = `/studio/feedback/${encodeURIComponent(start.feedbackId)}`;
         navigate(`${modeDestinationRef.current}?${next}`, {
           state: { returnContext, searchRestore: searchContext },
         });

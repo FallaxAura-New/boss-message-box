@@ -12,6 +12,7 @@ import type {
   StudioReplyCreateSuccess,
   StudioReplyType,
   StudioSearchSuccess,
+  StudioSequenceStartSuccess,
   StudioSessionSuccess,
   StudioSnapshot,
   StudioStatsSuccess,
@@ -173,6 +174,15 @@ export function getNextStudioFeedback(
     `/api/studio/feedbacks/${encodeURIComponent(feedbackId)}/next?${query}`,
     { signal },
   );
+}
+
+export function getStudioSequenceStart(
+  view: StudioFeedbackView,
+  topic?: Topic | null,
+): Promise<StudioSequenceStartSuccess> {
+  const query = new URLSearchParams({ view });
+  if (topic) query.set("topic", topic);
+  return request(`/api/studio/feedbacks/sequence/start?${query}`);
 }
 
 export function getStudioUser(userId: string, signal?: AbortSignal): Promise<StudioUserDetailSuccess> {

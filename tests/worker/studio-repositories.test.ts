@@ -308,6 +308,40 @@ describe("D1 Studio repository", () => {
     await expect(repository.appendReply({ id: "blocked-reply", feedbackId: "80000003-feedback", liveMode: true, replyType: "live", content: "不能提前展示", admin: ADMIN_ZD, now: 5 })).rejects.toMatchObject({ code: "FEEDBACK_NOT_READY" });
   });
 
+  it("walks the live queue oldest-first while the list order stays newest-first", async () => {
+    await seedFeedback({ id: "b0000001-feedback", createdAt: 10 });
+    await seedFeedback({ id: "b0000002-feedback", createdAt: 20 });
+    await seedFeedback({ id: "b0000003-feedback", createdAt: 30 });
+    const repository = new D1StudioRepository(env.BOSS_MESSAGE_DB);
+
+    // Default walk follows the newest-first list, so "next" moves back in time.
+    expect(await repository.findNextFeedback({ currentFeedbackId: "b0000003-feedback", view: "unreplied", topic: null })).toBe("b0000002-feedback");
+    expect(await repository.findNextFeedback({ currentFeedbackId: "b0000003-feedback", view: "unreplied", topic: null, direction: "previous" })).toBeNull();
+
+    // Ascending walk is the live run: "next" moves forward in time from the earliest entry.
+    expect(await repository.findSequenceStart({ view: "unreplied", topic: null })).toBe("b0000001-feedback");
+    expect(await repository.findNextFeedback({ currentFeedbackId: "b0000001-feedback", view: "unreplied", topic: null, ascending: true })).toBe("b0000002-feedback");
+    expect(await repository.findNextFeedback({ currentFeedbackId: "b0000001-feedback", view: "unreplied", topic: null, direction: "previous", ascending: true })).toBeNull();
+    expect(await repository.findNextFeedback({ currentFeedbackId: "b0000003-feedback", view: "unreplied", topic: null, direction: "previous", ascending: true })).toBe("b0000002-feedback");
+  });
+
+  it("resolves the sequence start within the requested branch and topic", async () => {
+    await seedFeedback({ id: "c0000001-feedback", createdAt: 10, isTodo: true });
+    await seedFeedback({ id: "c0000002-feedback", createdAt: 20, topic: "released_software" });
+    await seedFeedback({ id: "c0000003-feedback", createdAt: 30, topic: "released_software" });
+    await seedFeedback({ id: "c0000004-feedback", createdAt: 5, moderationStatus: "filtered" });
+    await seedFeedback({ id: "c0000005-feedback", createdAt: 6, moderationStatus: "pending" });
+    const repository = new D1StudioRepository(env.BOSS_MESSAGE_DB);
+
+    expect(await repository.findSequenceStart({ view: "unreplied", topic: null })).toBe("c0000001-feedback");
+    expect(await repository.findSequenceStart({ view: "unreplied", topic: "released_software" })).toBe("c0000002-feedback");
+    expect(await repository.findSequenceStart({ view: "todo", topic: null })).toBe("c0000001-feedback");
+    // Filtered and pending entries never enter the live run, so the start skips past them
+    // even though they are the oldest rows in the table.
+    expect(await repository.findSequenceStart({ view: "filtered", topic: null })).toBeNull();
+    expect(await repository.findSequenceStart({ view: "unreplied", topic: "unreleased_product" })).toBeNull();
+  });
+
   it("searches numeric/hex nicknames and receipt numbers together", async () => {
     await seedFeedback({ id: "deadbeef-feedback", createdAt: 2 });
     await seedFeedback({ id: "90000001-feedback", createdAt: 1 });

@@ -290,6 +290,63 @@ describe("Studio API", () => {
     expect((await api("/api/studio/session", { headers: authenticated })).status).toBe(401);
   });
 
+  it("starts the live run at the earliest message and walks forward in time", async () => {
+    const { cookie } = await login();
+    const authenticated = { Cookie: cookie };
+    const userId = crypto.randomUUID();
+    await testEnv.BOSS_MESSAGE_DB
+      .prepare(
+        `INSERT INTO users (id, phone_encrypted, phone_hash, douyin_nickname, created_at, updated_at)
+         VALUES (?, 'x', 'live-order-hash', '顺序测试', 1, 1)`,
+      )
+      .bind(userId)
+      .run();
+    const ids = ["30000001", "30000002", "30000003"].map((suffix) => `${suffix}-0000-4000-8000-000000000000`);
+    for (const [index, id] of ids.entries()) {
+      await testEnv.BOSS_MESSAGE_DB
+        .prepare(
+          `INSERT INTO feedback
+            (id, submission_key, user_id, douyin_nickname, topic, custom_topic, content, internal_status,
+             reply_type, reply_content, privacy_policy_version, privacy_agreed_at,
+             livestream_policy_version, livestream_agreed_at, moderation_status,
+             created_at, updated_at, is_todo)
+           VALUES (?, ?, ?, '顺序测试', 'appeal', NULL, ?, 'unprocessed', NULL, NULL,
+                   'v1', ?, 'v1', ?, 'kept', ?, ?, 0)`,
+        )
+        .bind(id, `submission-${id}`, userId, `第 ${index + 1} 条`, index + 1, index + 1, index + 1, index + 1)
+        .run();
+    }
+
+    expect((await api("/api/studio/feedbacks/sequence/start?view=unreplied", { headers: authenticated })).status).toBe(403);
+
+    await api("/api/studio/session/mode", {
+      method: "PUT",
+      headers: authenticated,
+      body: JSON.stringify({ mode: "live" }),
+    });
+
+    const start = await api("/api/studio/feedbacks/sequence/start?view=unreplied", { headers: authenticated });
+    expect(start.status).toBe(200);
+    expect(await start.json()).toEqual({ ok: true, feedbackId: ids[0] });
+
+    // Forward in time from the earliest entry, and the other way out of the queue.
+    const forward = await api(`/api/studio/feedbacks/${ids[0]}/next?view=unreplied&direction=next`, { headers: authenticated });
+    expect(await forward.json()).toEqual({ ok: true, nextFeedbackId: ids[1] });
+    const backward = await api(`/api/studio/feedbacks/${ids[0]}/next?view=unreplied&direction=previous`, { headers: authenticated });
+    expect(await backward.json()).toEqual({ ok: true, nextFeedbackId: null });
+    expect((await api("/api/studio/feedbacks/sequence/start?view=replied", { headers: authenticated })).status).toBe(403);
+
+    await api("/api/studio/session/mode", {
+      method: "PUT",
+      headers: authenticated,
+      body: JSON.stringify({ mode: "normal" }),
+    });
+
+    // The normal detail page keeps following the newest-first list order.
+    const listNext = await api(`/api/studio/feedbacks/${ids[2]}/next?view=unreplied&direction=next`, { headers: authenticated });
+    expect(await listNext.json()).toEqual({ ok: true, nextFeedbackId: ids[1] });
+  });
+
   it("blocks bootstrap passwords and revokes all sessions after changing a password", async () => {
     expect(bootstrapAccounts.results).toHaveLength(4);
     expect(bootstrapAccounts.results.every((admin) => admin.must_change_password === 1)).toBe(true);

@@ -562,6 +562,7 @@ export class D1StudioRepository implements StudioRepository {
     view: StudioListInput["view"];
     topic: Topic | null;
     direction?: "previous" | "next";
+    ascending?: boolean;
   }): Promise<string | null> {
     const current = await this.db
       .prepare("SELECT created_at, id FROM feedback WHERE id = ? LIMIT 1")
@@ -570,11 +571,13 @@ export class D1StudioRepository implements StudioRepository {
     if (!current) return null;
     const filter = viewFilter(input.view);
     const topicFilter = input.topic ? " AND f.topic = ?" : "";
-    const previous = input.direction === "previous";
-    const cursorFilter = previous
+    // "next" is always the next entry of the requested walk: later in time on an ascending
+    // run (live mode), earlier in time on the default newest-first list order.
+    const towardNewer = (input.direction !== "previous") === (input.ascending === true);
+    const cursorFilter = towardNewer
       ? "(f.created_at > ? OR (f.created_at = ? AND f.id > ?))"
       : "(f.created_at < ? OR (f.created_at = ? AND f.id < ?))";
-    const order = previous ? "ASC" : "DESC";
+    const order = towardNewer ? "ASC" : "DESC";
     const row = await this.db
       .prepare(
         `SELECT f.id FROM feedback f
@@ -590,6 +593,25 @@ export class D1StudioRepository implements StudioRepository {
         current.created_at,
         current.id,
       )
+      .first<{ id: string }>();
+    return row?.id ?? null;
+  }
+
+  async findSequenceStart(input: {
+    view: StudioListInput["view"];
+    topic: Topic | null;
+  }): Promise<string | null> {
+    const filter = viewFilter(input.view);
+    const topicFilter = input.topic ? " AND f.topic = ?" : "";
+    const row = await this.db
+      .prepare(
+        `SELECT f.id FROM feedback f
+         WHERE (${filter})${topicFilter}
+           AND f.moderation_status IN ('kept', 'failed')
+         ORDER BY f.created_at ASC, f.id ASC
+         LIMIT 1`,
+      )
+      .bind(...(input.topic ? [input.topic] : []))
       .first<{ id: string }>();
     return row?.id ?? null;
   }

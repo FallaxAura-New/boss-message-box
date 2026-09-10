@@ -28,11 +28,13 @@ const item = {
   moderationReason: null,
 };
 
-function mockSessionApi() {
-  let mode = "live";
+function mockSessionApi(oldestId: string) {
+  let mode = "normal";
+  const startRequests: string[] = [];
   const modeRequests: string[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const path = typeof input === "string" ? input : input instanceof URL ? input.pathname : new URL(input.url).pathname;
+    const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const path = new URL(rawUrl, "http://localhost").pathname;
     if (path === "/api/studio/session") {
       return Response.json({ ok: true, admin: { id: "admin", username: "zd" }, mode, expiresAt: Date.now() + 86_400_000 });
     }
@@ -43,6 +45,10 @@ function mockSessionApi() {
       mode = (JSON.parse(String(init?.body)) as { mode: string }).mode;
       modeRequests.push(mode);
       return Response.json({ ok: true, admin: { id: "admin", username: "zd" }, mode, expiresAt: Date.now() + 86_400_000 });
+    }
+    if (path === "/api/studio/feedbacks/sequence/start") {
+      startRequests.push(new URL(rawUrl, "http://localhost").search);
+      return Response.json({ ok: true, feedbackId: mode === "live" ? oldestId : null });
     }
     if (path.endsWith("/next")) return Response.json({ ok: true, nextFeedbackId: null });
     if (path === `/api/studio/feedbacks/${feedbackId}`) return Response.json({ ok: true, item });
@@ -56,7 +62,7 @@ function mockSessionApi() {
     throw new Error(`Unexpected request: ${path}`);
   });
   vi.stubGlobal("fetch", fetchMock);
-  return { fetchMock, modeRequests };
+  return { fetchMock, modeRequests, startRequests };
 }
 
 afterEach(() => {
@@ -64,9 +70,29 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
-describe("leaving live mode", () => {
+const oldestId = "11111111-1111-4111-8111-111111111111";
+
+describe("live mode entry and exit", () => {
+  it("opens the live run on the earliest message of the current filter", async () => {
+    window.history.replaceState(null, "", "/studio/unreplied");
+    const { startRequests } = mockSessionApi(oldestId);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "未回复留言" });
+
+    // The sidebar control and the mobile menu both expose the entry point.
+    const [entry] = await screen.findAllByRole("button", { name: /直播展示模式/ });
+    await user.click(entry!);
+
+    await waitFor(() => expect(window.location.pathname).toBe(`/studio/feedback/${oldestId}`));
+    expect(window.location.search).toContain("mode=live");
+    expect(window.location.search).toContain("view=unreplied");
+    expect(startRequests).toEqual(["?view=unreplied"]);
+  });
+
   it("clears ?mode=live and never flips the session back into live mode", async () => {
-    const { modeRequests } = mockSessionApi();
+    const { modeRequests } = mockSessionApi(oldestId);
     window.history.replaceState(null, "", `/studio/feedback/${feedbackId}?mode=live&view=unreplied`);
     const user = userEvent.setup();
 
@@ -80,7 +106,8 @@ describe("leaving live mode", () => {
     await waitFor(() => expect(modeRequests).toContain("normal"));
     // Give a second, unwanted "live" request the chance to appear before asserting the absence.
     await new Promise((resolve) => setTimeout(resolve, 80));
-    expect(modeRequests).toEqual(["normal"]);
+    // Opening a ?mode=live URL synchronises the session once, then the exit flips it back.
+    expect(modeRequests).toEqual(["live", "normal"]);
     expect(window.location.search).not.toContain("mode=live");
     expect(screen.getByRole("heading", { name: "未回复留言" })).toBeInTheDocument();
   });

@@ -68,6 +68,28 @@ type StepOutcome =
   | { status: "end" }
   | { status: "failed"; message: string };
 
+interface StepCopy {
+  switching: string;
+  end: string;
+  failure: string;
+}
+
+/**
+ * Live mode plays the queue oldest-first, so there "next" moves forward in time; the normal
+ * detail page keeps following the newest-first list, where "next" means the older entry.
+ * Direction names are therefore only meaningful together with the mode.
+ */
+function stepCopy(liveMode: boolean, direction: StepDirection): StepCopy {
+  if (liveMode) {
+    return direction === "next"
+      ? { switching: "正在切换到更新的一条…", end: "已经是最新的一条留言了", failure: "更新的一条留言暂时无法加载" }
+      : { switching: "正在切换到更早的一条…", end: "已经是第一条留言了", failure: "更早的一条留言暂时无法加载" };
+  }
+  return direction === "next"
+    ? { switching: "正在切换到下一条留言…", end: "已经是最后一条留言了", failure: "下一条留言暂时无法加载" }
+    : { switching: "正在切换到上一条留言…", end: "已经是第一条留言了", failure: "上一条留言暂时无法加载" };
+}
+
 /** Steps that follow each other faster than this are treated as one continuous skim. */
 const RAPID_STEP_MS = 900;
 /** A burst of queued steps is capped so a stuck key cannot run through the whole queue. */
@@ -359,7 +381,7 @@ export function FeedbackDetailPage() {
     // Only advertise a wait when the neighbour genuinely has to be fetched; a warmed step
     // is synchronous, and flashing "正在切换…" on it would be noise on the stream.
     if (liveMode && readLiveNeighbor({ id: fromId, view, topic, direction }) === undefined) {
-      setLiveNotice(direction === "previous" ? "正在切换到上一条留言…" : "正在切换到下一条留言…");
+      setLiveNotice(stepCopy(liveMode, direction).switching);
     }
     try {
       const adjacentId = await loadLiveNeighbor({ id: fromId, view, topic, direction });
@@ -383,9 +405,7 @@ export function FeedbackDetailPage() {
     } catch (reason) {
       return {
         status: "failed",
-        message: reason instanceof Error
-          ? reason.message
-          : `${direction === "previous" ? "上一" : "下一"}条留言暂时无法加载`,
+        message: reason instanceof Error ? reason.message : stepCopy(liveMode, direction).failure,
       };
     }
   }, [liveMode, navigate, returnContext, sequence]);
@@ -399,14 +419,14 @@ export function FeedbackDetailPage() {
     const outcome = await stepOnce(fromId, direction);
     if (outcome.status === "end") {
       if (direction === "next") setAtEnd(true);
-      setLiveNotice(direction === "previous" ? "已经是第一条留言了" : "已经是最后一条留言了");
+      setLiveNotice(stepCopy(liveMode, direction).end);
     } else if (outcome.status === "failed") {
       setLiveNotice(null);
       setReplyError(outcome.message);
     }
     actionRef.current = false;
     setNavigationDirection(null);
-  }, [stepOnce]);
+  }, [liveMode, stepOnce]);
 
   /**
    * Arrow keys are queued instead of discarded: hammering the key used to advance a single
@@ -446,7 +466,7 @@ export function FeedbackDetailPage() {
             setLiveNotice(null);
           } else if (outcome.status === "end") {
             if (stepDirection === "next") setAtEnd(true);
-            setLiveNotice(stepDirection === "previous" ? "已经是第一条留言了" : "已经是最后一条留言了");
+            setLiveNotice(stepCopy(liveMode, stepDirection).end);
             break;
           } else {
             setLiveNotice(null);
@@ -461,7 +481,7 @@ export function FeedbackDetailPage() {
       }
     };
     void run();
-  }, [stepOnce]);
+  }, [liveMode, stepOnce]);
 
   useEffect(() => {
     if (!liveMode || lightboxIndex !== null) return undefined;
@@ -537,7 +557,7 @@ export function FeedbackDetailPage() {
           aria-describedby="studio-live-keyboard-help"
           aria-keyshortcuts="ArrowLeft ArrowRight"
         >
-          <p id="studio-live-keyboard-help" className="sr-only">使用键盘左方向键查看上一条留言，右方向键查看下一条留言。</p>
+          <p id="studio-live-keyboard-help" className="sr-only">直播按提交时间从最早一条开始播放：右方向键查看更新的一条，左方向键回看更早的一条。</p>
           <div className="studio-live-frame">
             <header className="studio-live-identity">
               <div className="studio-live-signal-mark" aria-hidden="true"><i /><i /><i /></div>

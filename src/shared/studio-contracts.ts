@@ -149,6 +149,12 @@ export interface StudioModerationSuccess {
   isTodo: false;
 }
 
+export interface StudioSequenceStartSuccess {
+  ok: true;
+  /** Oldest live-eligible entry of the requested view, or null when the queue is empty. */
+  feedbackId: string | null;
+}
+
 export interface StudioNextFeedbackSuccess {
   ok: true;
   nextFeedbackId: string | null;
