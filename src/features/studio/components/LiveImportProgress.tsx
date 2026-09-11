@@ -4,7 +4,7 @@ import { createRandomUuid } from "../../../lib/random-id";
 import type { LiveImportJob } from "../../../shared/live-contracts";
 import { getLiveImportJob, resumeLiveImport, retryLiveImport } from "../live-api";
 
-const STATUS = { pending: "等待分类", processing: "正在分类", failed: "分类失败", imported: "已加入直播" };
+const STATUS = { pending: "等待分类", processing: "正在分类", failed: "分类失败" };
 export function LiveImportProgress({ jobId, archived, onUpdated }: { jobId: string; archived: boolean; onUpdated: () => void }) {
   const [job, setJob] = useState<LiveImportJob | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,18 +42,22 @@ export function LiveImportProgress({ jobId, archived, onUpdated }: { jobId: stri
     finally { setBusy(false); }
   };
   const failed = job?.rows.filter(r => r.status === "failed") ?? [];
-  const imported = job?.rows.filter(r => r.status === "imported").length ?? 0;
+  const classified = job?.rows.filter(r => r.status === "imported").length ?? 0;
+  const awaitingRouting = job?.rows.filter(r => r.status === "imported" && r.routingStatus === "pending").length ?? 0;
+  const routed = job?.rows.filter(r => r.status === "imported" && r.routingStatus !== "pending").length ?? 0;
   return <section className="studio-import-progress" aria-label="Excel 导入任务">
     <h2>导入任务{job ? ` · ${job.filename}` : ""}</h2>
     {!job && !error && <p role="status">正在读取逐行进度…</p>}
     {job && <>
-      <p role="status">已加入 {imported} / {job.rows.length} 行 · 失败 {failed.length} 行</p>
-      {imported === job.rows.length && <p>本次导入已完成。</p>}
+      <p role="status">已分类 {classified} / {job.rows.length} 行 · 待分流 {awaitingRouting} 行 · 已分流 {routed} 行 · 失败 {failed.length} 行</p>
+      {classified + failed.length === job.rows.length && <p>本次 AI 分类已完成；分类成功的行会保留在待分流。</p>}
       {archived && failed.length > 0 && <p>原批次已归档。未导入行保留失败记录；如需继续，请在当前批次重新选择文件。</p>}
       {!archived && failed.length > 0 && <Button type="button" variant="secondary" loading={busy} loadingLabel="正在重试" onClick={() => void retry(failed.map(r => r.rowNumber))}>重试失败行</Button>}
       <ol className="studio-import-rows">
         {job.rows.slice(page * 20, page * 20 + 20).map(row => <li key={row.rowNumber}>
-          <strong>第 {row.rowNumber} 行 · {row.nickname}</strong><p>{STATUS[row.status]}{row.errorCode === "batch_archived" ? "：原批次已归档" : row.status === "failed" ? "：AI 未返回有效分类，可重试" : ""}</p>
+          <strong>第 {row.rowNumber} 行 · {row.nickname}</strong><p>{row.status === "imported"
+            ? row.routingStatus === "selected" ? "已加入直播展示" : row.routingStatus === "not_selected" ? "不加入直播展示" : "等待人工分流"
+            : STATUS[row.status]}{row.errorCode === "batch_archived" ? "：原批次已归档" : row.status === "failed" ? "：AI 未返回有效分类，可重试" : ""}</p>
           {row.status === "failed" && !archived && <Button type="button" variant="quiet" disabled={busy} onClick={() => void retry([row.rowNumber])}>重试第 {row.rowNumber} 行</Button>}
         </li>)}
       </ol>

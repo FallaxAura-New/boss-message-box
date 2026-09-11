@@ -106,8 +106,6 @@ export function StudioShell() {
   const liveRequested = searchParams.get("mode") === "live";
   const liveMode = liveRequested || mode === "live";
   const liveModeReady = !liveRequested || mode === "live";
-  const liveEntryAvailable =
-    location.pathname === "/studio/live-display" && !searchParams.get("batch");
   const chromeHidden = liveMode && !liveChrome.pinned && !chromeVisible;
 
   const scheduleChromeHide = useCallback(() => {
@@ -342,12 +340,10 @@ export function StudioShell() {
         <StudioBrand />
         <StudioNavigation />
         <div className="studio-sidebar-footer">
-          {liveEntryAvailable && (
-            <button type="button" className="studio-live-toggle" disabled={modeBusy} onClick={() => void enterLiveMode()}>
-              <Broadcast aria-hidden="true" weight="bold" />
-              <span><strong>直播展示模式</strong><small>聚焦观众留言与图片</small></span>
-            </button>
-          )}
+          <button type="button" className="studio-live-toggle" disabled={modeBusy} onClick={() => void enterLiveMode()}>
+            <Broadcast aria-hidden="true" weight="bold" />
+            <span><strong>直播展示模式</strong><small>播放当前直播展示组</small></span>
+          </button>
           <div className="studio-admin-row">
             <span><small>当前账号</small><strong>{admin?.username}</strong></span>
             <button type="button" className="studio-icon-button" aria-label="退出登录" onClick={() => setLogoutOpen(true)}>
@@ -363,11 +359,9 @@ export function StudioShell() {
           <summary><span>导航</span><CaretDown aria-hidden="true" weight="bold" /></summary>
           <div className="studio-mobile-menu-panel">
             <StudioNavigation afterNavigate={() => mobileNavRef.current?.removeAttribute("open")} />
-            {liveEntryAvailable && (
-              <button type="button" className="studio-live-toggle" disabled={modeBusy} onClick={() => void enterLiveMode()}>
-                <Broadcast aria-hidden="true" weight="bold" />直播展示模式
-              </button>
-            )}
+            <button type="button" className="studio-live-toggle" disabled={modeBusy} onClick={() => void enterLiveMode()}>
+              <Broadcast aria-hidden="true" weight="bold" />直播展示模式
+            </button>
             <button type="button" className="studio-logout-row" onClick={() => setLogoutOpen(true)}>
               <SignOut aria-hidden="true" weight="bold" />退出登录
             </button>

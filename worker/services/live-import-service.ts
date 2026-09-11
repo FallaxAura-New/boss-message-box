@@ -1,4 +1,13 @@
-import { liveClassificationSchema, liveImportSchema, type LiveClassification, type LiveImportInput, type LiveImportJob } from "../../src/shared/live-contracts";
+import {
+  liveClassificationSchema,
+  liveImportSchema,
+  type LiveClassification,
+  type LiveImportInput,
+  type LiveImportJob,
+  type LiveImportRoutingListSuccess,
+} from "../../src/shared/live-contracts";
+import type { Topic } from "../../src/shared/contracts";
+import { STUDIO_PAGE_SIZE } from "../../src/shared/studio-contracts";
 import { PublicError } from "../core/errors";
 import type { Env } from "../env";
 import { D1LiveRepository } from "../infra/d1-live-repository";
@@ -56,15 +65,92 @@ export class LiveImportService {
     const job = await this.db.prepare("SELECT id, batch_id, filename, created_at FROM live_import_jobs WHERE id = ?")
       .bind(id).first<{ id: string; batch_id: string; filename: string; created_at: number }>();
     if (!job) throw new PublicError(404, "NOT_FOUND", "导入任务不存在");
-    const rows = await this.db.prepare("SELECT row_number, nickname, content, status, error_code FROM live_import_rows WHERE job_id = ? ORDER BY row_number")
-      .bind(id).all<{ row_number: number; nickname: string; content: string; status: LiveImportJob["rows"][number]["status"]; error_code: string | null }>();
+    const rows = await this.db.prepare(`SELECT row_number, nickname, content, status, error_code, topic, custom_topic, routing_status
+      FROM live_import_rows WHERE job_id = ? ORDER BY row_number`)
+      .bind(id).all<{
+        row_number: number; nickname: string; content: string; status: LiveImportJob["rows"][number]["status"];
+        error_code: string | null; topic: Topic | null; custom_topic: string | null;
+        routing_status: LiveImportJob["rows"][number]["routingStatus"];
+      }>();
     return { id: job.id, batchId: job.batch_id, filename: job.filename, createdAt: job.created_at,
-      rows: rows.results.map(r => ({ rowNumber: r.row_number, nickname: r.nickname, content: r.content, status: r.status, errorCode: r.error_code })) };
+      rows: rows.results.map(r => ({
+        rowNumber: r.row_number, nickname: r.nickname, content: r.content, status: r.status,
+        errorCode: r.error_code, topic: r.topic, customTopic: r.custom_topic, routingStatus: r.routing_status,
+      })) };
   }
   async jobs(batchId: string): Promise<Array<Pick<LiveImportJob, "id" | "filename" | "createdAt" | "batchId">>> {
     const r = await this.db.prepare("SELECT id, filename, created_at, batch_id FROM live_import_jobs WHERE batch_id = ? ORDER BY created_at DESC LIMIT 50")
       .bind(batchId).all<{ id: string; filename: string; created_at: number; batch_id: string }>();
     return r.results.map(j => ({ id: j.id, filename: j.filename, createdAt: j.created_at, batchId: j.batch_id }));
+  }
+  async routing(page: number, topic: Topic | null): Promise<LiveImportRoutingListSuccess> {
+    const where = `r.status = 'imported' AND r.routing_status = 'pending'${topic ? " AND r.topic = ?" : ""}`;
+    const bindings = topic ? [topic] : [];
+    const [rows, count] = await this.db.batch([
+      this.db.prepare(`SELECT r.job_id, r.row_number, r.nickname, r.content, r.topic, r.custom_topic,
+        r.routing_status, j.filename, j.created_at
+        FROM live_import_rows r JOIN live_import_jobs j ON j.id = r.job_id
+        WHERE ${where}
+        ORDER BY j.created_at DESC, j.id DESC, r.row_number ASC
+        LIMIT ? OFFSET ?`).bind(...bindings, STUDIO_PAGE_SIZE, (page - 1) * STUDIO_PAGE_SIZE),
+      this.db.prepare(`SELECT COUNT(*) AS total FROM live_import_rows r WHERE ${where}`).bind(...bindings),
+    ]);
+    const total = Number((count.results[0] as { total: number } | undefined)?.total ?? 0);
+    return {
+      ok: true,
+      items: (rows.results as Array<{
+        job_id: string; row_number: number; nickname: string; content: string; topic: Topic;
+        custom_topic: string | null; routing_status: "pending"; filename: string; created_at: number;
+      }>).map(row => ({
+        jobId: row.job_id, rowNumber: row.row_number, nickname: row.nickname, content: row.content,
+        topic: row.topic, customTopic: row.custom_topic, routingStatus: row.routing_status,
+        filename: row.filename, createdAt: row.created_at,
+      })),
+      page,
+      pageSize: STUDIO_PAGE_SIZE,
+      total,
+      totalPages: Math.ceil(total / STUDIO_PAGE_SIZE),
+    };
+  }
+  async route(input: {
+    jobId: string; rowNumber: number; batchId: string; requestKey: string;
+    routingStatus: "selected" | "not_selected"; adminId: string; now: number;
+  }): Promise<void> {
+    const action = input.routingStatus === "selected" ? "routing_selected" : "routing_not_selected";
+    const target = `${input.jobId}:${input.rowNumber}`;
+    if (await this.live.replayed(input.adminId, input.requestKey, action, target, input.batchId)) return;
+    await this.live.requireActive(input.batchId);
+    const auditId = crypto.randomUUID();
+    const entryId = crypto.randomUUID();
+    const bind = (sql: string, ...args: unknown[]) => this.db.prepare(sql).bind(...args);
+    await this.db.batch([
+      bind(`INSERT INTO live_audit_logs(id, request_key, admin_id, action, batch_id, target_id, created_at)
+        SELECT ?, ?, ?, ?, ?, ?, ? FROM live_import_rows r
+        WHERE r.job_id = ? AND r.row_number = ? AND r.status = 'imported' AND r.routing_status = 'pending'
+          AND r.topic IS NOT NULL
+          AND EXISTS (SELECT 1 FROM live_batches WHERE id = ? AND status = 'active')
+        ON CONFLICT(admin_id, request_key) DO NOTHING`,
+      auditId, input.requestKey, input.adminId, action, input.batchId, target, input.now,
+      input.jobId, input.rowNumber, input.batchId),
+      bind(`UPDATE live_import_rows SET routing_status = ?
+        WHERE job_id = ? AND row_number = ? AND routing_status = 'pending'
+          AND EXISTS (SELECT 1 FROM live_audit_logs WHERE id = ?)`,
+      input.routingStatus, input.jobId, input.rowNumber, auditId),
+      ...(input.routingStatus === "selected" ? [
+        bind(`INSERT INTO live_entries(id, batch_id, source_type, nickname, content, topic, custom_topic,
+          source_created_at, import_order, added_at, added_by, import_job_id, import_row_number)
+          SELECT ?, ?, 'imported', r.nickname, r.content, r.topic, r.custom_topic,
+            j.created_at, r.row_number, ?, ?, r.job_id, r.row_number
+          FROM live_import_rows r JOIN live_import_jobs j ON j.id = r.job_id
+          WHERE r.job_id = ? AND r.row_number = ? AND r.status = 'imported' AND r.routing_status = 'selected'
+            AND EXISTS (SELECT 1 FROM live_audit_logs WHERE id = ?)
+          ON CONFLICT(import_job_id, import_row_number) DO NOTHING`,
+        entryId, input.batchId, input.now, input.adminId, input.jobId, input.rowNumber, auditId),
+      ] : []),
+    ]);
+    if (!await this.live.replayed(input.adminId, input.requestKey, action, target, input.batchId)) {
+      throw new PublicError(409, "REQUEST_CONFLICT", "Excel 行已分流或批次已刷新，请刷新后重试");
+    }
   }
   async retry(id: string, requestKey: string, adminId: string, rowNumbers: number[], now: number): Promise<LiveImportJob> {
     const job = await this.job(id);
@@ -103,20 +189,17 @@ export class LiveImportService {
     if (!row) return;
     try {
       const classification = liveClassificationSchema.parse(await this.classify(row.content));
-      const entryId = crypto.randomUUID();
       await this.db.batch([
-        this.db.prepare(`INSERT INTO live_entries(id, batch_id, source_type, nickname, content, topic, custom_topic,
-          source_created_at, import_order, added_at, added_by, import_job_id, import_row_number)
-          SELECT ?, j.batch_id, 'imported', r.nickname, r.content, ?, ?, j.created_at, r.row_number, j.created_at, j.created_by, j.id, r.row_number
-          FROM live_import_rows r JOIN live_import_jobs j ON j.id = r.job_id JOIN live_batches b ON b.id = j.batch_id
-          WHERE r.job_id = ? AND r.row_number = ? AND r.attempt_token = ? AND r.status = 'processing' AND b.status = 'active'
-          ON CONFLICT(import_job_id, import_row_number) DO NOTHING`)
-          .bind(entryId, classification.topic, classification.customTopic, row.job_id, row.row_number, token),
-        this.db.prepare(`UPDATE live_import_rows SET status = CASE WHEN EXISTS
-          (SELECT 1 FROM live_entries WHERE import_job_id = ? AND import_row_number = ?) THEN 'imported' ELSE 'failed' END,
-          error_code = CASE WHEN EXISTS (SELECT 1 FROM live_entries WHERE import_job_id = ? AND import_row_number = ?) THEN NULL ELSE 'batch_archived' END,
-          attempt_token = NULL, lease_until = 0 WHERE job_id = ? AND row_number = ? AND attempt_token = ?`)
-          .bind(row.job_id, row.row_number, row.job_id, row.row_number, row.job_id, row.row_number, token),
+        this.db.prepare(`UPDATE live_import_rows SET status = 'imported', topic = ?, custom_topic = ?,
+          routing_status = 'pending', error_code = NULL, attempt_token = NULL, lease_until = 0
+          WHERE job_id = ? AND row_number = ? AND attempt_token = ? AND status = 'processing'
+            AND EXISTS (SELECT 1 FROM live_import_jobs j JOIN live_batches b ON b.id = j.batch_id
+              WHERE j.id = live_import_rows.job_id AND b.status = 'active')`)
+          .bind(classification.topic, classification.customTopic, row.job_id, row.row_number, token),
+        this.db.prepare(`UPDATE live_import_rows SET status = 'failed', error_code = 'batch_archived',
+          attempt_token = NULL, lease_until = 0
+          WHERE job_id = ? AND row_number = ? AND attempt_token = ? AND status = 'processing'`)
+          .bind(row.job_id, row.row_number, token),
       ]);
     } catch {
       await this.db.prepare(`UPDATE live_import_rows SET status = 'failed', error_code = 'classification_failed', attempt_token = NULL, lease_until = 0

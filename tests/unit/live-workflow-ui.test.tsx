@@ -16,6 +16,8 @@ const old = { ...batch, id: "11111111-1111-4111-8111-111111111111", status: "arc
 const item = { id: "22222222-2222-4222-8222-222222222222", nickname: "观众昵称", feedbackNumber: "22222222", topic: "appeal", contentPreview: "正文", content: "正文", imageCount: 0, createdAt: 1,
   status: "unreplied", isTodo: false, replyCount: 0, latestReplyAdmin: null, moderationStatus: "kept", routingStatus: "pending", liveSelected: false,
   sourceType: "public", feedbackId: "22222222-2222-4222-8222-222222222222" };
+const importItem = { jobId: "33333333-3333-4333-8333-333333333333", rowNumber: 2, nickname: "导入昵称", content: "导入正文", topic: "released_software", customTopic: null,
+  filename: "留言.xlsx", createdAt: 2, routingStatus: "pending" };
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new Event("close")); };
@@ -31,11 +33,14 @@ function setup(path = "/studio/live-display", liveMode = false) {
 function mockApi() {
   let rotated = false;
   let failRotation = false;
+  let importPending = true;
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     if (url.pathname.endsWith("/live/active")) return Response.json({ ok: true, batch });
     if (url.pathname.endsWith("/live/batches")) return Response.json({ ok: true, batches: [batch, old] });
     if (url.pathname.endsWith("/live/imports")) return Response.json({ ok: true, jobs: [] });
+    if (url.pathname.endsWith("/live/imports/routing")) return Response.json({ ok: true, items: importPending ? [importItem] : [], total: importPending ? 1 : 0, page: 1, pageSize: 30, totalPages: importPending ? 1 : 0 });
+    if (url.pathname.includes(`/live/imports/${importItem.jobId}/rows/`)) { importPending = false; return Response.json({ ok: true }); }
     if (url.pathname.endsWith("/live/entries")) {
       const historical = url.searchParams.get("batchId") === old.id;
       return Response.json({ ok: true, batch: historical ? old : batch, items: rotated && !historical ? [] : [item], total: rotated && !historical ? 0 : 1, page: 1, totalPages: 1 });
@@ -55,10 +60,27 @@ function mockApi() {
 describe("routing and live-batch interfaces", () => {
   it("removes a routed card immediately and announces success", async () => {
     const { fetch } = mockApi(); const user = userEvent.setup(); setup("/studio/routing");
-    await user.click(await screen.findByRole("button", { name: "加入直播展示" }));
+    const publicCard = (await screen.findByText("观众昵称")).closest("article")!;
+    await user.click(within(publicCard).getByRole("button", { name: "加入直播展示" }));
     await waitFor(() => expect(screen.queryByText("观众昵称")).not.toBeInTheDocument());
     expect(screen.getByText("已加入直播展示，同时进入未回复列表。")).toHaveAttribute("role", "status");
     expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+  it("puts Excel import and classified rows in routing, never on the live-display page", async () => {
+    mockApi(); const user = userEvent.setup();
+    const livePage = setup();
+    await screen.findByRole("heading", { name: "直播展示" });
+    expect(screen.queryByRole("button", { name: "导入 Excel" })).not.toBeInTheDocument();
+    livePage.unmount();
+
+    setup("/studio/routing");
+    expect(await screen.findByRole("button", { name: "导入 Excel" })).toBeInTheDocument();
+    const card = (await screen.findByText("导入昵称")).closest("article")!;
+    expect(within(card).getByText("导入正文")).toBeInTheDocument();
+    expect(within(card).getByText("已发布软件")).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "不加入直播展示" }));
+    await waitFor(() => expect(screen.queryByText("导入昵称")).not.toBeInTheDocument());
+    expect(screen.getByText("Excel 第 2 行已标记为不加入直播展示。")).toHaveAttribute("role", "status");
   });
   it("stores history selection in the URL, uses UTC+8 and renders history read-only", async () => {
     mockApi(); const user = userEvent.setup(); setup();

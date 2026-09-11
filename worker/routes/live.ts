@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { liveImportSchema, liveRotateSchema, liveRoutingSchema } from "../../src/shared/live-contracts";
+import { topicSchema } from "../../src/shared/contracts";
 import { PublicError } from "../core/errors";
 import { D1LiveRepository } from "../infra/d1-live-repository";
 import { createLiveImportService } from "../services/live-import-service";
@@ -12,6 +13,11 @@ const listSchema = z.object({ batchId: uuid.optional(), page: z.coerce.number().
 const entrySchema = z.object({ batchId: uuid });
 const sequenceSchema = z.object({ batchId: uuid, currentId: uuid.optional(), direction: z.enum(["previous", "next"]).default("next") });
 const retrySchema = z.object({ requestKey: uuid, rowNumbers: z.array(z.number().int().min(2).max(501)).min(1).max(500) }).strict();
+const importRoutingListSchema = z.object({
+  page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
+  topic: topicSchema.optional(),
+});
+const rowNumberSchema = z.coerce.number().int().min(2).max(501);
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success) throw new PublicError(400, "VALIDATION_ERROR", result.error.issues[0]?.message ?? "请求参数无效");
@@ -127,6 +133,21 @@ liveRoutes.get("/imports", async c => {
   if (c.get("studioSession").mode !== "normal") throw new PublicError(403, "FORBIDDEN", "请先退出直播模式再查看导入任务");
   const { batchId } = parse(entrySchema, c.req.query());
   return c.json({ ok: true, jobs: await createLiveImportService(c.env).jobs(batchId) });
+});
+liveRoutes.get("/imports/routing", async c => {
+  const input = parse(importRoutingListSchema, c.req.query());
+  return c.json(await createLiveImportService(c.env).routing(input.page, input.topic ?? null));
+});
+liveRoutes.post("/imports/:jobId/rows/:rowNumber/routing", async c => {
+  const input = parse(liveRoutingSchema, await json(c.req.raw));
+  await createLiveImportService(c.env).route({
+    ...input,
+    jobId: parse(uuid, c.req.param("jobId")),
+    rowNumber: parse(rowNumberSchema, c.req.param("rowNumber")),
+    adminId: c.get("studioSession").admin.id,
+    now: Date.now(),
+  });
+  return c.json({ ok: true });
 });
 liveRoutes.get("/imports/:jobId", async c => c.json({ ok: true, job: await createLiveImportService(c.env).job(parse(uuid, c.req.param("jobId"))) }));
 liveRoutes.post("/imports/:jobId/retry", async c => {

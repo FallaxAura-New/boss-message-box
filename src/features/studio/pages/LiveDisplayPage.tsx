@@ -4,12 +4,10 @@ import { Button } from "../../../components/Button";
 import { createRandomUuid } from "../../../lib/random-id";
 import { TOPIC_LABELS } from "../../../shared/contracts";
 import type { LiveBatch, LiveListSuccess } from "../../../shared/live-contracts";
-import { getLiveBatches, getLiveEntries, getLiveImportJobs, getLiveSequence, rotateLiveBatch, removeLiveEntry } from "../live-api";
+import { getLiveBatches, getLiveEntries, getLiveSequence, rotateLiveBatch, removeLiveEntry } from "../live-api";
 import { resetLiveSequence } from "../live-sequence";
 import { StudioEmpty, StudioError, StudioLoading } from "../components/AsyncState";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { LiveImportControl } from "../components/LiveImportControl";
-import { LiveImportProgress } from "../components/LiveImportProgress";
 import type { StudioOutletContext } from "../components/StudioShell";
 
 function batchTime(timestamp: number): string {
@@ -21,12 +19,10 @@ export function LiveDisplayPage() {
   const navigate = useNavigate();
   const batchId = liveMode ? null : query.get("batch");
   const page = Math.max(1, Number(query.get("page")) || 1);
-  const jobId = query.get("job");
   const resultKey = `${batchId ?? "current"}:${page}:${liveMode}`;
   const [loaded, setLoaded] = useState<{ key: string; result: LiveListSuccess } | null>(null);
   const result = loaded?.key === resultKey ? loaded.result : null;
   const [batches, setBatches] = useState<LiveBatch[]>([]);
-  const [jobs, setJobs] = useState<Array<{ id: string; filename: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -46,8 +42,8 @@ export function LiveDisplayPage() {
         const start = await getLiveSequence(value.batch.id);
         if (!controller.signal.aborted && start.feedbackId) navigate(`/studio/feedback/${start.feedbackId}?${new URLSearchParams({ mode: "live", view: "live_display", batch: value.batch.id })}`, { replace: true });
       } else {
-        const [batchList, jobList] = await Promise.all([getLiveBatches(controller.signal), getLiveImportJobs(value.batch.id, controller.signal)]);
-        if (!controller.signal.aborted) { setBatches(batchList.batches); setJobs(jobList.jobs); }
+        const batchList = await getLiveBatches(controller.signal);
+        if (!controller.signal.aborted) setBatches(batchList.batches);
       }
     };
     void read().catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "直播批次加载失败"); });
@@ -83,7 +79,7 @@ export function LiveDisplayPage() {
   };
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(query); if (value) next.set(key, value); else next.delete(key);
-    if (key === "batch") { next.delete("page"); next.delete("job"); setNotice(null); rotation.current = null; }
+    if (key === "batch") { next.delete("page"); next.delete("job"); next.delete("importPage"); setNotice(null); rotation.current = null; }
     setQuery(next);
   };
   return <div className="studio-page studio-live-display-page">
@@ -94,7 +90,6 @@ export function LiveDisplayPage() {
         </select></label></div>}
     </header>
     {!liveMode && result && !archived && <div className="studio-list-controls studio-live-tools">
-      <LiveImportControl key={result.batch.id} batchId={result.batch.id} onCreated={id => { setFilter("job", id); setNotice("已创建导入任务，下面可查看逐行进度。"); changed(); }} />
       <Button type="button" variant="secondary" disabled={busy} onClick={() => setConfirm(true)}>刷新直播展示组</Button>
     </div>}
     {notice && <p role="status">{notice}</p>}
@@ -102,7 +97,7 @@ export function LiveDisplayPage() {
     {error && <StudioError message={error} onRetry={() => { setError(null); changed(); }} />}
     {!result && !error && <StudioLoading label="正在加载直播批次" />}
     {result && <p className="studio-total">共 {result.total} 条</p>}
-    {result?.items.length === 0 && <StudioEmpty title={archived ? "这个归档批次没有留言" : "当前直播展示组为空"} description={liveMode ? "等待工作人员分流或导入留言，画面将自动更新。" : "可从待分流加入留言，或导入 Excel；历史批次不会被删除。"} />}
+    {result?.items.length === 0 && <StudioEmpty title={archived ? "这个归档批次没有留言" : "当前直播展示组为空"} description={liveMode ? "等待工作人员从待分流加入留言，画面将自动更新。" : "请从待分流加入观众留言或已分类的 Excel 行；历史批次不会被删除。"} />}
     {result && !liveMode && <div className="studio-feedback-grid">{result.items.map(item => <article key={item.id} className="studio-feedback-card" data-feedback-id={item.id}>
       <div className="studio-feedback-card-main"><p>{item.sourceType === "imported" ? "Excel 导入" : "观众提交"} · {item.topic === "other" ? item.customTopic : TOPIC_LABELS[item.topic]}</p>
         <h2>{item.nickname}</h2><p className="studio-live-entry-content">{item.content}</p>
@@ -117,10 +112,6 @@ export function LiveDisplayPage() {
       <span>{page} / {result.totalPages}</span>
       <Button type="button" variant="quiet" disabled={page >= result.totalPages} onClick={() => setFilter("page", String(page + 1))}>下一页</Button>
     </nav>}
-    {!liveMode && jobs.length > 0 && <label className="studio-topic-filter">导入任务<select value={jobId ?? ""} onChange={e => setFilter("job", e.target.value)}>
-      <option value="">选择任务查看进度</option>{jobs.map(j => <option key={j.id} value={j.id}>{j.filename} · {j.id.slice(0, 8)}</option>)}
-    </select></label>}
-    {!liveMode && jobId && result && <LiveImportProgress key={jobId} jobId={jobId} archived={Boolean(archived)} onUpdated={changed} />}
     {!liveMode && <ConfirmDialog open={confirm} title="刷新直播展示组？" description={`当前批次共 ${result?.total ?? 0} 条留言。将归档这些记录并开启空批次，直播画面会变为空。留言、回复和导入记录都不会删除。`}
       confirmLabel="归档并开启空批次" busy={busy} error={error} onCancel={() => setConfirm(false)} onConfirm={() => void rotate()} />}
   </div>;

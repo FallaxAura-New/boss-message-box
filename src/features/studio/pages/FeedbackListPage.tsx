@@ -15,9 +15,10 @@ import { FeedbackCard } from "../components/FeedbackCard";
 import type { StudioOutletContext } from "../components/StudioShell";
 import { StudioStats } from "../components/StudioStats";
 import { ExportFeedbackControl } from "../components/ExportFeedbackControl";
+import { RoutingImportPanel } from "../components/RoutingImportPanel";
 
 const VIEW_COPY: Record<StudioFeedbackView, { title: string; description: string; empty: string }> = {
-  routing: { title: "待分流", description: "审核通过的留言，先选择是否加入直播展示。", empty: "目前没有等待分流的留言。" },
+  routing: { title: "待分流", description: "审核通过或 Excel AI 分类完成的留言，都要先人工选择是否加入直播展示。", empty: "目前没有观众留言等待分流。" },
   moderation: { title: "AI 待处理", description: "等待审核或审核失败的留言，可在详情中重试或人工恢复。", empty: "目前没有待审核或审核失败的留言。" },
   live_display: { title: "直播展示", description: "当前直播批次中的留言。", empty: "当前直播批次为空。" },
   unreplied: { title: "未回复留言", description: "最新提交排在最前，每页显示 30 条。", empty: "目前没有等待回复的留言。" },
@@ -48,6 +49,9 @@ export function FeedbackListPage({ view }: { view: StudioFeedbackView }) {
   const requestedPage = Number(searchParams.get("page") ?? "1");
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
   const topic = readTopic(searchParams.get("topic"));
+  const requestedImportPage = Number(searchParams.get("importPage") ?? "1");
+  const importPage = Number.isSafeInteger(requestedImportPage) && requestedImportPage > 0 ? requestedImportPage : 1;
+  const jobId = searchParams.get("job");
   const [result, setResult] = useState<StudioFeedbackListSuccess | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -124,6 +128,7 @@ export function FeedbackListPage({ view }: { view: StudioFeedbackView }) {
     if (nextTopic) next.set("topic", nextTopic);
     else next.delete("topic");
     next.delete("page");
+    next.delete("importPage");
     next.delete("snapshotAt");
     next.delete("snapshotId");
     setNewCount(0);
@@ -148,6 +153,14 @@ export function FeedbackListPage({ view }: { view: StudioFeedbackView }) {
     next.delete("snapshotId");
     if (page === 1 && !snapshot) setReload((value) => value + 1);
     else setSearchParams(next);
+  };
+
+  const changeImportQuery = (key: "job" | "importPage", value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    if (key === "job") next.delete("importPage");
+    setSearchParams(next);
   };
 
   const toggleTodo = async (item: StudioFeedbackSummary) => {
@@ -196,7 +209,7 @@ export function FeedbackListPage({ view }: { view: StudioFeedbackView }) {
                 </select>
               </label>
             )}
-            {result && <span className="studio-total">共 {result.pagination.total} 条</span>}
+            {result && view !== "routing" && <span className="studio-total">共 {result.pagination.total} 条</span>}
             {!liveMode && <ExportFeedbackControl key={`${view}:${topic ?? ""}`} view={view} topic={topic} snapshot={snapshot} title={copy.title} />}
           </div>
         )}
@@ -212,11 +225,23 @@ export function FeedbackListPage({ view }: { view: StudioFeedbackView }) {
 
       {routingNotice && <p role="status">{routingNotice}</p>}
 
+      {view === "routing" && !liveMode && <RoutingImportPanel
+        topic={topic}
+        jobId={jobId}
+        importPage={importPage}
+        onQueryChange={changeImportQuery}
+        onNotice={setRoutingNotice}
+      />}
+
+      {view === "routing" && result && <div className="studio-routing-subheading studio-public-routing-heading">
+        <h2>观众留言待分流</h2><span className="studio-total">共 {result.pagination.total} 条</span>
+      </div>}
+
       {error && <StudioError message={error} onRetry={() => { setError(null); setResult(null); setReload((value) => value + 1); }} />}
       {!error && !result && <StudioLoading label="正在加载留言" />}
       {!error && result?.items.length === 0 && (
         <StudioEmpty
-          title={topic ? "这个主题暂时没有留言" : "这里暂时是空的"}
+          title={topic ? "这个主题暂时没有观众留言" : view === "routing" ? "没有观众留言等待分流" : "这里暂时是空的"}
           description={topic ? `没有找到“${TOPIC_LABELS[topic]}”主题的留言。` : copy.empty}
         />
       )}

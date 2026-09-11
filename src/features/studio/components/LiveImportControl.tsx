@@ -54,7 +54,7 @@ export function LiveImportControl({ batchId, onCreated }: { batchId: string; onC
         {busy && <p role="status">正在处理，请稍候…</p>}
         {preview && <>
           <p role="status">有效 {preview.rows.length} 行 · 无效 {preview.invalidRows.length} 行 · 空白 {preview.emptyRows} 行</p>
-          <p>确认后只提交有效行。AI 分类成功后加入当前批次，不进入未回复或公开历史。</p>
+          <p>确认后只提交有效行。AI 分类成功后进入待分流；只有人工选择“加入直播展示”才会进入当前批次，不进入未回复或公开历史。</p>
           <ol className="studio-import-rows">
             {reviewRows.slice(page * 20, page * 20 + 20).map(r => <li key={r.rowNumber}>
               <strong>Excel 第 {r.rowNumber} 行 · {r.valid ? "有效" : "无效，不导入"}</strong><p>{r.text}</p>

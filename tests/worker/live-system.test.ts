@@ -138,19 +138,33 @@ describe("separate moderation, routing, replies and live membership", () => {
 });
 
 describe("durable import jobs", () => {
-  it("classifies without rewriting, preserves Excel order, and isolates public data", async () => {
+  it("classifies without rewriting, waits for human routing, and isolates public data", async () => {
     const classify = vi.fn(async () => ({ topic: "other" as const, customTopic: "门店体验" }));
     const service = new LiveImportService(db, classify);
     const input = importInput(); await service.create(input, adminId, 9000);
     await service.run();
     const job = await service.job(input.jobId);
     expect(job.rows.every(r => r.status === "imported")).toBe(true);
+    expect(job.rows.every(r => r.routingStatus === "pending")).toBe(true);
     expect(classify).toHaveBeenCalledTimes(3);
+    const pending = await service.routing(1, null);
+    expect(pending.items.map(e => e.content)).toEqual(input.rows.map(r => r.content));
+    expect(pending.items.map(e => e.nickname)).toEqual(input.rows.map(r => r.nickname));
+    expect(pending.items.map(e => e.rowNumber)).toEqual([2, 3, 4]);
+    expect(pending.items.every(e => e.createdAt === 9000 && e.customTopic === "门店体验")).toBe(true);
+    expect((await live.list(initialBatch, 1)).items).toHaveLength(0);
+    const selectedKey = crypto.randomUUID();
+    const selectedInput = { jobId: input.jobId, rowNumber: 2, batchId: initialBatch, requestKey: selectedKey, routingStatus: "selected" as const, adminId, now: 9100 };
+    await Promise.all([service.route(selectedInput), service.route(selectedInput)]);
+    await service.route({ jobId: input.jobId, rowNumber: 3, batchId: initialBatch, requestKey: crypto.randomUUID(), routingStatus: "not_selected", adminId, now: 9200 });
     const entries = (await live.list(initialBatch, 1)).items;
-    expect(entries.map(e => e.content)).toEqual(input.rows.map(r => r.content));
-    expect(entries.map(e => e.nickname)).toEqual(input.rows.map(r => r.nickname));
-    expect(entries.map(e => e.importOrder)).toEqual([2, 3, 4]);
-    expect(entries.every(e => e.createdAt === 9000 && e.sourceType === "imported" && e.feedbackId === null && e.customTopic === "门店体验")).toBe(true);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ content: "原文0", nickname: "昵称0", importOrder: 2, sourceType: "imported", feedbackId: null, customTopic: "门店体验" });
+    await expect(service.route({ ...selectedInput, routingStatus: "not_selected" })).rejects.toMatchObject({ status: 409 });
+    await live.remove({ entryId: entries[0]!.id, batchId: initialBatch, requestKey: crypto.randomUUID(), adminId, now: 9300 });
+    expect((await service.job(input.jobId)).rows[0]?.routingStatus).toBe("not_selected");
+    expect((await live.list(initialBatch, 1)).items).toHaveLength(0);
+    expect((await service.routing(1, null)).items.map(row => row.rowNumber)).toEqual([4]);
     expect((await list("unreplied")).items).toHaveLength(0);
     expect(await publicRepo.findHistory("昵称0")).toBeNull();
     expect(await db.prepare("SELECT COUNT(*) AS n FROM feedback").first()).toEqual({ n: 0 });
@@ -173,7 +187,8 @@ describe("durable import jobs", () => {
     await Promise.all([service.run(), service.run()]);
     await service.retry(input.jobId, key, adminId, [3], 2000);
     expect((await service.job(input.jobId)).rows.every(r => r.status === "imported")).toBe(true);
-    expect((await live.list(initialBatch, 1)).items).toHaveLength(3);
+    expect((await service.routing(1, null)).items).toHaveLength(3);
+    expect((await live.list(initialBatch, 1)).items).toHaveLength(0);
     await expect(service.create({ ...input, rows: [{ ...input.rows[0]!, content: "变更内容" }] }, adminId, 2000)).rejects.toMatchObject({ status: 409 });
   });
   it("limits concurrent provider calls globally across overlapping runners", async () => {
@@ -189,7 +204,8 @@ describe("durable import jobs", () => {
     await vi.waitFor(() => expect(releases).toHaveLength(3));
     releases.forEach(resolve => resolve()); await running;
     expect(peak).toBe(3);
-    expect((await live.list(initialBatch, 1)).items).toHaveLength(3);
+    expect((await service.routing(1, null)).items).toHaveLength(3);
+    expect((await live.list(initialBatch, 1)).items).toHaveLength(0);
   });
   it("does not insert late AI results into an archived or successor batch", async () => {
     let release!: () => void;
@@ -203,7 +219,16 @@ describe("durable import jobs", () => {
     expect((await live.list(initialBatch, 1)).items).toHaveLength(0);
     await expect(service.retry(input.jobId, crypto.randomUUID(), adminId, [2], 3000)).rejects.toMatchObject({ status: 409 });
   });
-  it("reserves an import group and preserves row order across out-of-order completions during playback", async () => {
+  it("keeps already classified rows pending across rotation and routes them only into the current batch", async () => {
+    const service = new LiveImportService(db, async () => ({ topic: "appeal", customTopic: null }));
+    const input = importInput(1); await service.create(input, adminId, 1000); await service.run();
+    const next = await live.rotate({ batchId: initialBatch, requestKey: crypto.randomUUID(), adminId, now: 2000 });
+    expect((await service.routing(1, null)).items.map(row => row.rowNumber)).toEqual([2]);
+    await service.route({ jobId: input.jobId, rowNumber: 2, batchId: next.id, requestKey: crypto.randomUUID(), routingStatus: "selected", adminId, now: 3000 });
+    expect((await live.list(initialBatch, 1)).items).toHaveLength(0);
+    expect((await live.list(next.id, 1)).items).toMatchObject([{ sourceType: "imported", content: "原文0" }]);
+  });
+  it("preserves row order after out-of-order classification and appends human selections during playback", async () => {
     const releases = new Map<string, () => void>();
     const service = new LiveImportService(db, async content => {
       await new Promise<void>(resolve => releases.set(content, resolve));
@@ -215,9 +240,13 @@ describe("durable import jobs", () => {
     const laterPublic = await seed("kept", 1); await route(laterPublic, "selected");
     const running = service.run(); await vi.waitFor(() => expect(releases.size).toBe(3));
     releases.get("原文2")!(); releases.get("原文0")!(); releases.get("原文1")!(); await running;
+    expect((await service.routing(1, null)).items.map(row => row.content)).toEqual(["原文0", "原文1", "原文2"]);
+    for (const rowNumber of [2, 3, 4]) await service.route({
+      jobId: input.jobId, rowNumber, batchId: initialBatch, requestKey: crypto.randomUUID(), routingStatus: "selected", adminId, now: 3000 + rowNumber,
+    });
     const entries = (await live.list(initialBatch, 1)).items;
-    expect(entries.map(e => e.content)).toEqual(["原始留言", "原文0", "原文1", "原文2", "原始留言"]);
-    expect(entries.at(-1)?.feedbackId).toBe(laterPublic);
+    expect(entries.map(e => e.content)).toEqual(["原始留言", "原始留言", "原文0", "原文1", "原文2"]);
+    expect(entries[1]?.feedbackId).toBe(laterPublic);
     expect(entries.filter(e => e.sourceType === "imported").map(e => e.importOrder)).toEqual([2, 3, 4]);
   });
 });
@@ -249,6 +278,15 @@ describe("live API permission boundary", () => {
     expect(uploaded.status).toBe(200);
     expect(await uploaded.json()).toMatchObject({ job: { id: jobId, filename: "api.xlsx", rows: [{ nickname: "导入者", content: "导入正文" }] } });
     await vi.waitFor(async () => expect(await db.prepare("SELECT status FROM live_import_rows WHERE job_id = ?").bind(jobId).first()).toEqual({ status: "failed" }));
+    const importService = new LiveImportService(db, async () => ({ topic: "appeal", customTopic: null }));
+    await importService.retry(jobId, crypto.randomUUID(), adminId, [2], Date.now());
+    await importService.run();
+    const pendingImport = await request("/live/imports/routing");
+    expect(pendingImport.status).toBe(200);
+    expect(await pendingImport.json()).toMatchObject({ total: 1, items: [{ jobId, rowNumber: 2, nickname: "导入者", routingStatus: "pending" }] });
+    const importRouteInput = { batchId: initialBatch, requestKey: crypto.randomUUID(), routingStatus: "selected" };
+    expect((await request(`/live/imports/${jobId}/rows/2/routing`, "POST", importRouteInput)).status).toBe(200);
+    expect(await (await request("/live/imports/routing")).json()).toMatchObject({ total: 0, items: [] });
     const entry = (await live.list(initialBatch, 1)).items[0]!;
     const archived = await live.rotate({ batchId: initialBatch, requestKey: crypto.randomUUID(), adminId, now: 2000 });
     const normalHistory = await request(`/live/entries?batchId=${initialBatch}`);
@@ -260,6 +298,7 @@ describe("live API permission boundary", () => {
     expect((await request("/feedbacks?view=unreplied")).status).toBe(403);
     expect((await request(`/feedbacks/${id}`)).status).toBe(403);
     expect((await request(`/live/routing/${id}`, "POST", input)).status).toBe(403);
+    expect((await request(`/live/imports/${jobId}/rows/2/routing`, "POST", importRouteInput)).status).toBe(403);
     expect((await request("/live/rotate", "POST", { batchId: archived.id, requestKey: crypto.randomUUID() })).status).toBe(403);
     expect((await request("/live/imports", "POST", importInput())).status).toBe(403);
     expect((await request(`/live/imports?batchId=${archived.id}`)).status).toBe(403);

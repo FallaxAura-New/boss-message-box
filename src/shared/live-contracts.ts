@@ -30,6 +30,7 @@ export const liveClassificationSchema = z.object({
 export type LiveImportInput = z.infer<typeof liveImportSchema>;
 export type LiveImportRow = z.infer<typeof liveImportRowSchema>;
 export type LiveClassification = z.infer<typeof liveClassificationSchema>;
+export type LiveImportRowStatus = "pending" | "processing" | "failed" | "imported";
 export interface LiveBatch {
   id: string; startedAt: number; archivedAt: number | null; status: "active" | "archived"; count: number;
   revision: number;
@@ -44,5 +45,17 @@ export interface LiveListSuccess {
 }
 export interface LiveImportJob {
   id: string; batchId: string; filename: string; createdAt: number;
-  rows: Array<LiveImportRow & { status: "pending" | "processing" | "failed" | "imported"; errorCode: string | null }>;
+  rows: Array<LiveImportRow & {
+    status: LiveImportRowStatus; errorCode: string | null;
+    topic: LiveClassification["topic"] | null; customTopic: string | null;
+    routingStatus: z.infer<typeof routingStatusSchema> | null;
+  }>;
+}
+export interface LiveImportRoutingItem extends LiveImportRow {
+  jobId: string; filename: string; createdAt: number;
+  topic: LiveClassification["topic"]; customTopic: string | null;
+  routingStatus: "pending";
+}
+export interface LiveImportRoutingListSuccess {
+  ok: true; items: LiveImportRoutingItem[]; page: number; pageSize: number; total: number; totalPages: number;
 }

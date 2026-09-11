@@ -151,6 +151,10 @@ export class D1LiveRepository {
       this.db.prepare(`UPDATE feedback SET routing_status = 'not_selected', updated_at = ? WHERE id IN
         (SELECT feedback_id FROM live_entries WHERE id = ?) AND EXISTS (SELECT 1 FROM live_audit_logs WHERE id = ?)`)
         .bind(input.now, input.entryId, auditId),
+      this.db.prepare(`UPDATE live_import_rows SET routing_status = 'not_selected' WHERE (job_id, row_number) IN
+        (SELECT import_job_id, import_row_number FROM live_entries WHERE id = ?)
+        AND EXISTS (SELECT 1 FROM live_audit_logs WHERE id = ?)`)
+        .bind(input.entryId, auditId),
     ]);
     if (!await this.replayed(input.adminId, input.requestKey, "live_removed", input.entryId, input.batchId)) {
       throw new PublicError(409, "REQUEST_CONFLICT", "留言资格或批次已变化，请刷新列表");

@@ -80,6 +80,14 @@ afterEach(() => {
 const oldestId = "11111111-1111-4111-8111-111111111111";
 
 describe("live mode entry and exit", () => {
+  it("shows the live-mode entry on normal Studio pages outside the live-display list", async () => {
+    window.history.replaceState(null, "", "/studio/unreplied");
+    mockSessionApi(oldestId);
+    render(<App />);
+    await screen.findByRole("heading", { name: "未回复留言" });
+    expect(await screen.findAllByRole("button", { name: /直播展示模式/ })).toHaveLength(2);
+  });
+
   it("opens the live run on the earliest entry of the current batch", async () => {
     window.history.replaceState(null, "", "/studio/live-display");
     const { startRequests } = mockSessionApi(oldestId);

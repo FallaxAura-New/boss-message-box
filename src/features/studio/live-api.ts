@@ -1,4 +1,12 @@
-import type { LiveBatch, LiveEntry, LiveImportInput, LiveImportJob, LiveListSuccess } from "../../shared/live-contracts";
+import type {
+  LiveBatch,
+  LiveEntry,
+  LiveImportInput,
+  LiveImportJob,
+  LiveImportRoutingListSuccess,
+  LiveListSuccess,
+} from "../../shared/live-contracts";
+import type { Topic } from "../../shared/contracts";
 import { studioRequest } from "./api";
 const post = (body: unknown): RequestInit => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 export const getActiveBatch = (signal?: AbortSignal) => studioRequest<{ ok: true; batch: LiveBatch }>("/api/studio/live/active", { signal });
@@ -30,6 +38,14 @@ export const createLiveImport = (input: LiveImportInput, file: File) => {
 };
 export const getLiveImportJobs = (batchId: string, signal?: AbortSignal) => studioRequest<{ ok: true; jobs: Array<Pick<LiveImportJob, "id" | "filename" | "createdAt" | "batchId">> }>(
   `/api/studio/live/imports?${new URLSearchParams({ batchId })}`, { signal });
+export const getLiveImportRouting = (page = 1, topic: Topic | null = null, signal?: AbortSignal) => studioRequest<LiveImportRoutingListSuccess>(
+  `/api/studio/live/imports/routing?${new URLSearchParams({ page: String(page), ...(topic ? { topic } : {}) })}`, { signal });
+export async function routeLiveImportRow(jobId: string, rowNumber: number, input: { batchId: string; requestKey: string; routingStatus: "selected" | "not_selected" }) {
+  const result = await studioRequest<{ ok: true }>(
+    `/api/studio/live/imports/${encodeURIComponent(jobId)}/rows/${rowNumber}/routing`, post(input));
+  window.dispatchEvent(new Event("studio:changed"));
+  return result;
+}
 export const getLiveImportJob = (id: string, signal?: AbortSignal) => studioRequest<{ ok: true; job: LiveImportJob }>(`/api/studio/live/imports/${encodeURIComponent(id)}`, { signal });
 export const retryLiveImport = (id: string, rowNumbers: number[], requestKey: string) => studioRequest<{ ok: true; job: LiveImportJob }>(
   `/api/studio/live/imports/${encodeURIComponent(id)}/retry`, post({ rowNumbers, requestKey }));
