@@ -73,7 +73,7 @@ export function LiveDisplayPage() {
       if (removal.current?.entryId !== entryId || removal.current?.batchId !== result.batch.id) removal.current = { entryId, batchId: result.batch.id, key: createRandomUuid() };
       await removeLiveEntry(entryId, result.batch.id, removal.current.key);
       removal.current = null; resetLiveSequence();
-      setNotice("已取消当前批次的直播资格，原留言与回复仍保留。"); changed();
+      setNotice("已取消直播展示并退回待分流，原留言与回复仍保留。"); changed();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "取消失败，请重试"); }
     finally { lock.current = false; setBusy(false); }
   };
@@ -104,7 +104,7 @@ export function LiveDisplayPage() {
         <p>{item.sourceType === "imported" ? `导入于 ${batchTime(item.addedAt)} · ${item.filename} · 第 ${item.importRowNumber} 行` : `提交于 ${batchTime(item.createdAt)}`}</p>
         {item.feedbackId && <Link to={`/studio/feedback/${item.feedbackId}?view=live_display`} state={{ returnContext: { url: `/studio/live-display?${query}` } }}>查看原留言与回复</Link>}
         {item.imageCount > 0 && <p>{item.imageCount} 张图片（原留言中查看）</p>}
-        {!archived && <Button type="button" variant="quiet" disabled={busy} onClick={() => void remove(item.id)}>取消直播资格</Button>}
+        {!archived && <Button type="button" variant="quiet" disabled={busy} onClick={() => void remove(item.id)}>取消直播展示</Button>}
       </div>
     </article>)}</div>}
     {!liveMode && result && result.totalPages > 1 && <nav className="studio-pagination" aria-label="直播留言分页">

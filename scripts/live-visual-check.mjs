@@ -95,7 +95,7 @@ try {
     await page.getByRole("combobox", { name: "按直播批次筛选" }).selectOption(old.id);
     await page.getByText(/历史批次只读/).waitFor();
     await expect(page.getByRole("button", { name: "导入 Excel" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "取消直播资格" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "取消直播展示" })).toHaveCount(0);
     if (!page.url().includes(`batch=${old.id}`)) errors.push("history selection missing from URL");
     await capture("history");
     await page.reload(); await page.getByText(/历史批次只读/).waitFor();

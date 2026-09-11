@@ -148,10 +148,10 @@ export class D1LiveRepository {
         ON CONFLICT(admin_id, request_key) DO NOTHING`).bind(auditId, input.requestKey, input.adminId, input.now, input.entryId, input.batchId),
       this.db.prepare(`UPDATE live_entries SET removed_at = ?, removed_by = ? WHERE id = ? AND EXISTS (SELECT 1 FROM live_audit_logs WHERE id = ?)`)
         .bind(input.now, input.adminId, input.entryId, auditId),
-      this.db.prepare(`UPDATE feedback SET routing_status = 'not_selected', updated_at = ? WHERE id IN
+      this.db.prepare(`UPDATE feedback SET routing_status = 'pending', is_todo = 0, updated_at = ? WHERE id IN
         (SELECT feedback_id FROM live_entries WHERE id = ?) AND EXISTS (SELECT 1 FROM live_audit_logs WHERE id = ?)`)
         .bind(input.now, input.entryId, auditId),
-      this.db.prepare(`UPDATE live_import_rows SET routing_status = 'not_selected' WHERE (job_id, row_number) IN
+      this.db.prepare(`UPDATE live_import_rows SET routing_status = 'pending' WHERE (job_id, row_number) IN
         (SELECT import_job_id, import_row_number FROM live_entries WHERE id = ?)
         AND EXISTS (SELECT 1 FROM live_audit_logs WHERE id = ?)`)
         .bind(input.entryId, auditId),

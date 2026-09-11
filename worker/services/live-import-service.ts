@@ -144,7 +144,22 @@ export class LiveImportService {
           FROM live_import_rows r JOIN live_import_jobs j ON j.id = r.job_id
           WHERE r.job_id = ? AND r.row_number = ? AND r.status = 'imported' AND r.routing_status = 'selected'
             AND EXISTS (SELECT 1 FROM live_audit_logs WHERE id = ?)
-          ON CONFLICT(import_job_id, import_row_number) DO NOTHING`,
+          ON CONFLICT DO UPDATE SET
+            batch_id = excluded.batch_id,
+            nickname = excluded.nickname,
+            content = excluded.content,
+            topic = excluded.topic,
+            custom_topic = excluded.custom_topic,
+            source_created_at = excluded.source_created_at,
+            import_order = excluded.import_order,
+            queue_group = CASE
+              WHEN EXISTS (SELECT 1 FROM live_batches WHERE id = excluded.batch_id AND playback_started_at IS NOT NULL)
+                THEN live_entries.queue_group
+              ELSE 0 END,
+            added_at = excluded.added_at,
+            added_by = excluded.added_by,
+            removed_at = NULL,
+            removed_by = NULL`,
         entryId, input.batchId, input.now, input.adminId, input.jobId, input.rowNumber, auditId),
       ] : []),
     ]);

@@ -61,6 +61,24 @@ describe("separate moderation, routing, replies and live membership", () => {
     expect((await live.list(initialBatch, 1)).items.map(e => e.feedbackId)).toEqual([selected]);
     expect((await studio.listFeedbacks({ view: "live", topic: null, page: 1, snapshot: null })).items).toHaveLength(2);
   });
+  it("returns a cancelled public entry to routing and removes it from live, unreplied and todo", async () => {
+    const id = await seed();
+    await route(id, "selected");
+    await studio.setTodo({ feedbackId: id, isTodo: true, adminId, now: 150 });
+    const entry = (await live.list(initialBatch, 1)).items[0]!;
+
+    await live.remove({ entryId: entry.id, batchId: initialBatch, requestKey: crypto.randomUUID(), adminId, now: 200 });
+
+    expect((await live.list(initialBatch, 1)).items).toHaveLength(0);
+    expect((await list("unreplied")).items).toHaveLength(0);
+    expect((await studio.listFeedbacks({ view: "todo", topic: null, page: 1, snapshot: null })).items).toHaveLength(0);
+    expect((await list("routing")).items.map(item => item.id)).toEqual([id]);
+    expect(await studio.getFeedbackSummary(id)).toMatchObject({ routingStatus: "pending", liveSelected: false, isTodo: false });
+
+    await route(id, "selected");
+    expect((await live.list(initialBatch, 1)).items.map(item => item.feedbackId)).toEqual([id]);
+    expect((await list("unreplied")).items.map(item => item.id)).toEqual([id]);
+  });
   it.each(["pending", "filtered", "failed"])("excludes %s from routing, unreplied and live; public sees only unreplied", async status => {
     const id = await seed(status);
     await expect(route(id, "selected")).rejects.toMatchObject({ status: 409 });
@@ -162,9 +180,20 @@ describe("durable import jobs", () => {
     expect(entries[0]).toMatchObject({ content: "原文0", nickname: "昵称0", importOrder: 2, sourceType: "imported", feedbackId: null, customTopic: "门店体验" });
     await expect(service.route({ ...selectedInput, routingStatus: "not_selected" })).rejects.toMatchObject({ status: 409 });
     await live.remove({ entryId: entries[0]!.id, batchId: initialBatch, requestKey: crypto.randomUUID(), adminId, now: 9300 });
-    expect((await service.job(input.jobId)).rows[0]?.routingStatus).toBe("not_selected");
+    expect((await service.job(input.jobId)).rows[0]?.routingStatus).toBe("pending");
     expect((await live.list(initialBatch, 1)).items).toHaveLength(0);
+    expect((await service.routing(1, null)).items.map(row => row.rowNumber)).toEqual([2, 4]);
+    await service.route({ ...selectedInput, requestKey: crypto.randomUUID(), now: 9400 });
+    expect((await live.list(initialBatch, 1)).items.map(row => row.content)).toEqual(["原文0"]);
     expect((await service.routing(1, null)).items.map(row => row.rowNumber)).toEqual([4]);
+    const reselected = (await live.list(initialBatch, 1)).items[0]!;
+    await live.remove({ entryId: reselected.id, batchId: initialBatch, requestKey: crypto.randomUUID(), adminId, now: 9500 });
+    const next = await live.rotate({ batchId: initialBatch, requestKey: crypto.randomUUID(), adminId, now: 9600 });
+    await service.route({ ...selectedInput, batchId: next.id, requestKey: crypto.randomUUID(), now: 9700 });
+    expect((await live.list(initialBatch, 1)).items).toHaveLength(0);
+    expect((await live.list(next.id, 1)).items.map(row => row.content)).toEqual(["原文0"]);
+    expect(await db.prepare(`SELECT COUNT(*) AS n FROM live_entries
+      WHERE import_job_id = ? AND import_row_number = ?`).bind(input.jobId, 2).first()).toEqual({ n: 2 });
     expect((await list("unreplied")).items).toHaveLength(0);
     expect(await publicRepo.findHistory("昵称0")).toBeNull();
     expect(await db.prepare("SELECT COUNT(*) AS n FROM feedback").first()).toEqual({ n: 0 });

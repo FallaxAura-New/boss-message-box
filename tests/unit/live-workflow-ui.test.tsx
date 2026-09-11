@@ -32,6 +32,7 @@ function setup(path = "/studio/live-display", liveMode = false) {
 }
 function mockApi() {
   let rotated = false;
+  let removed = false;
   let failRotation = false;
   let importPending = true;
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -43,8 +44,10 @@ function mockApi() {
     if (url.pathname.includes(`/live/imports/${importItem.jobId}/rows/`)) { importPending = false; return Response.json({ ok: true }); }
     if (url.pathname.endsWith("/live/entries")) {
       const historical = url.searchParams.get("batchId") === old.id;
-      return Response.json({ ok: true, batch: historical ? old : batch, items: rotated && !historical ? [] : [item], total: rotated && !historical ? 0 : 1, page: 1, totalPages: 1 });
+      const empty = !historical && (rotated || removed);
+      return Response.json({ ok: true, batch: historical ? old : batch, items: empty ? [] : [item], total: empty ? 0 : 1, page: 1, totalPages: empty ? 0 : 1 });
     }
+    if (url.pathname.includes("/live/entries/") && url.pathname.endsWith("/remove")) { removed = true; return Response.json({ ok: true }); }
     if (url.pathname.endsWith("/live/rotate")) {
       if (failRotation) return Response.json({ ok: false, error: { message: "网络暂时失败，请重试" } }, { status: 503 });
       rotated = true; return Response.json({ ok: true, batch: { ...batch, count: 0 } });
@@ -82,6 +85,16 @@ describe("routing and live-batch interfaces", () => {
     await waitFor(() => expect(screen.queryByText("导入昵称")).not.toBeInTheDocument());
     expect(screen.getByText("Excel 第 2 行已标记为不加入直播展示。")).toHaveAttribute("role", "status");
   });
+  it("announces that cancelling live display returns the item to routing", async () => {
+    const { fetch } = mockApi(); const user = userEvent.setup(); setup();
+    const button = await screen.findByRole("button", { name: "取消直播展示" });
+
+    await user.click(button);
+
+    expect(await screen.findByText(/已取消直播展示并退回待分流/)).toHaveAttribute("role", "status");
+    await screen.findByText("当前直播展示组为空");
+    expect(fetch.mock.calls.some(([input, init]) => String(input).endsWith(`/live/entries/${item.id}/remove`) && init?.method === "POST")).toBe(true);
+  });
   it("stores history selection in the URL, uses UTC+8 and renders history read-only", async () => {
     mockApi(); const user = userEvent.setup(); setup();
     const select = await screen.findByRole("combobox", { name: "按直播批次筛选" });
@@ -92,7 +105,7 @@ describe("routing and live-batch interfaces", () => {
     expect(screen.getByLabelText("当前位置")).toHaveTextContent(`batch=${old.id}`);
     expect(screen.queryByRole("button", { name: "导入 Excel" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "刷新直播展示组" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "取消直播资格" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消直播展示" })).not.toBeInTheDocument();
   });
   it("confirms the batch count, shows retry errors inside the modal and reuses the request key", async () => {
     const fixture = mockApi(); fixture.failRotation(true);
