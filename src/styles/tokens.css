@@ -36,16 +36,12 @@
   --type-body-sm: 0.9375rem;
   --type-caption: 0.875rem;
   --type-button: 1rem;
-  --type-live-name: clamp(1.875rem, 3.6vw, 3.75rem);
-  --type-live-topic: clamp(1rem, 1.7vw, 1.35rem);
-  --type-live-message: clamp(2rem, 3.8vw, 4.25rem);
-  --type-live-message-media: clamp(1.5rem, 2.8vw, 3rem);
-  --type-live-message-dense: clamp(1.125rem, 1.8vw, 1.75rem);
-  --type-live-message-compact: clamp(1rem, 1.35vw, 1.3rem);
-  --type-live-name-mobile: clamp(1.5rem, 7vw, 2.5rem);
+  --type-live-name: clamp(1.5rem, min(3.6vw, 6vh), 3.75rem);
+  --type-live-topic: clamp(1rem, min(1.7vw, 2.8vh), 1.35rem);
+  --type-live-message-min: clamp(1rem, 1.3vw, 1.5rem);
+  --type-live-message-max: clamp(1.5rem, min(4.2vw, 7vh), 4.25rem);
+  --type-live-name-mobile: clamp(1.5rem, min(7vw, 5vh), 2.5rem);
   --type-live-topic-mobile: 1rem;
-  --type-live-message-mobile: clamp(1.5rem, 7vw, 2.25rem);
-  --type-live-message-media-mobile: clamp(1rem, 4.8vw, 1.35rem);
 
   /* Livestream-only tactical dossier: gunmetal, brass and signal coral. */
   --live-bg: #0e171c;

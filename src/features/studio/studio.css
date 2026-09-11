@@ -629,8 +629,9 @@
   width: 100%;
   height: 100vh;
   height: 100svh;
+  height: 100dvh;
   overflow: hidden;
-  padding: max(4.75rem, calc(env(safe-area-inset-top) + 4rem)) clamp(var(--space-4), 4vw, var(--space-12)) max(var(--space-5), env(safe-area-inset-bottom));
+  padding: max(3.75rem, calc(env(safe-area-inset-top) + 3.25rem)) clamp(var(--space-3), 2vw, var(--space-8)) max(var(--space-4), env(safe-area-inset-bottom));
   background: var(--live-canvas);
 }
 
@@ -651,7 +652,7 @@
   position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: min(100%, 96rem);
+  width: 100%;
   min-width: 0;
   min-height: 0;
 }
@@ -665,6 +666,11 @@
   width: fit-content;
   min-width: min(22rem, 55vw);
   max-width: calc(100% - clamp(var(--space-3), 2vw, var(--space-8)));
+  max-height: 30svh;
+  max-height: 30dvh;
+  overflow-y: auto;
+  scrollbar-color: var(--live-brass) transparent;
+  scrollbar-width: thin;
   gap: clamp(var(--space-3), 2vw, var(--space-5));
   margin-inline-start: clamp(var(--space-3), 2vw, var(--space-8));
   padding: var(--space-4) clamp(var(--space-5), 3vw, var(--space-8)) var(--space-4) calc(clamp(var(--space-5), 3vw, var(--space-8)) + 0.375rem);
@@ -732,8 +738,6 @@
    contrast-checked, so the metal sheen never costs legibility. */
 .studio-live-identity h1 {
   min-width: 0;
-  max-height: 24svh;
-  overflow-y: auto;
   background-image: var(--live-brass-text);
   background-clip: text;
   color: var(--live-brass);
@@ -760,6 +764,7 @@
   letter-spacing: 0.04em;
   overflow-wrap: anywhere;
 }
+.studio-live-identity:focus-visible { outline-color: var(--live-brass); }
 .studio-live-identity-copy > p::before {
   width: clamp(1rem, 2vw, 1.75rem);
   height: 1px;
@@ -840,12 +845,12 @@
 .studio-live-message-layout {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(10rem, 24vw, 22rem);
+  grid-template-columns: minmax(0, 1fr) clamp(8rem, 23%, 28rem);
   align-items: stretch;
   height: 100%;
   min-height: 0;
-  gap: clamp(var(--space-4), 3vw, var(--space-8));
-  padding: max(var(--space-8), env(safe-area-inset-top)) clamp(var(--space-5), 3.5vw, var(--space-10)) max(var(--space-8), env(safe-area-inset-bottom));
+  gap: clamp(var(--space-3), 2vw, var(--space-8));
+  padding: clamp(var(--space-4), 2.5vmin, var(--space-8));
 }
 .studio-live-message:not(.studio-live-message--with-images) .studio-live-message-layout { grid-template-columns: minmax(0, 1fr); }
 
@@ -855,7 +860,8 @@
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-2) var(--space-3) max(var(--space-8), env(safe-area-inset-bottom)) 0;
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+  overscroll-behavior: contain;
   /* A permanent brass rail replaces the auto-hiding overlay bar: a long message must show
      that there is more to read without a scroll hint that only appears mid-scroll. */
   scrollbar-color: rgb(207 183 139 / 0.45) rgb(238 232 220 / 0.06);
@@ -864,20 +870,19 @@
 .studio-live-message-text:focus-visible { outline-color: var(--live-brass); outline-offset: var(--space-1); }
 
 .studio-live-message-text > p {
-  width: min(100%, 23em);
-  margin-inline: auto;
+  width: 100%;
+  margin: 0;
   color: var(--live-paper);
-  font-size: var(--type-live-message);
+  font-size: var(--live-fitted-font, var(--type-live-message-min));
+  /* Measurements must be immediate, including under the global reduced-motion rule. */
+  transition-property: none;
   font-weight: 600;
-  line-height: 1.45;
-  letter-spacing: -0.025em;
+  line-height: 1.5;
+  letter-spacing: 0;
   overflow-wrap: anywhere;
   text-shadow: 0 1px 2px rgb(0 0 0 / 0.34);
   white-space: pre-wrap;
 }
-.studio-live-message--with-images .studio-live-message-text > p { font-size: var(--type-live-message-media); line-height: 1.5; }
-.studio-live-message--dense .studio-live-message-text > p { font-size: var(--type-live-message-dense); line-height: 1.6; }
-.studio-live-message--compact .studio-live-message-text > p { font-size: var(--type-live-message-compact); line-height: 1.65; letter-spacing: -0.012em; }
 
 .studio-live-images {
   display: grid;
@@ -1119,30 +1124,25 @@
   .studio-detail-actions .button { min-width: 0; flex: 1; }
   .studio-moderation-section { align-items: stretch; flex-direction: column; }
   .studio-live-stage {
-    padding: max(4.25rem, calc(env(safe-area-inset-top) + 3.75rem)) var(--space-4) max(var(--space-4), env(safe-area-inset-bottom));
+    padding: max(3.75rem, calc(env(safe-area-inset-top) + 3.25rem)) var(--space-3) max(var(--space-3), env(safe-area-inset-bottom));
   }
   .studio-live-identity {
     min-width: min(18rem, 78vw);
     max-width: 100%;
-    max-height: 28svh;
     gap: var(--space-3);
     margin-inline-start: 0;
     padding: var(--space-3) var(--space-5) var(--space-3) calc(var(--space-5) + 0.375rem);
   }
   .studio-live-signal-mark { height: 1.125rem; }
   .studio-live-identity-copy > p::before { width: 1rem; margin-inline-end: var(--space-2); }
-  .studio-live-identity h1 { max-height: 22svh; font-size: var(--type-live-name-mobile); }
+  .studio-live-identity h1 { font-size: var(--type-live-name-mobile); }
   .studio-live-identity-copy > p { font-size: var(--type-live-topic-mobile); }
   .studio-live-navigation-status > span { max-width: 100%; }
   .studio-live-message-layout {
-    grid-template-columns: minmax(0, 1fr) clamp(6.5rem, 30vw, 8.5rem);
+    grid-template-columns: minmax(0, 1fr) clamp(6.5rem, 25%, 8.5rem);
     gap: var(--space-3);
-    padding: var(--space-5);
+    padding: var(--space-4);
   }
-  .studio-live-message-text > p { font-size: var(--type-live-message-mobile); }
-  .studio-live-message--with-images .studio-live-message-text > p { font-size: var(--type-live-message-media-mobile); }
-  .studio-live-message--dense .studio-live-message-text > p,
-  .studio-live-message--compact .studio-live-message-text > p { font-size: 1rem; }
   .studio-live-action > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
   .studio-live-action { width: 2.75rem; justify-content: center; padding: 0; }
   .studio-lightbox-stage { grid-template-columns: 1fr; padding: var(--space-3); }
@@ -1150,6 +1150,21 @@
   .studio-lightbox-arrow:first-child { inset-inline-start: var(--space-5); }
   .studio-lightbox-arrow:last-child { inset-inline-end: var(--space-5); }
 }
+
+@media (max-width: 40rem) and (min-height: 32rem) {
+  .studio-live-message--with-images .studio-live-message-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) clamp(4rem, 20dvh, 10rem);
+  }
+  .studio-live-images {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .studio-live-images--1 { grid-template-columns: minmax(0, 1fr); }
+  .studio-live-images--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.studio-import-detail-page .studio-detail-section > p { overflow-wrap: anywhere; }
 
 @media (max-width: 30rem) {
   .studio-mobile-header { padding-inline: var(--space-4); }

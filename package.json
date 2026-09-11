@@ -16,6 +16,7 @@
     "test:watch": "vitest --config vitest.config.ts",
     "check:visual": "node scripts/visual-check.mjs",
     "check:visual:live": "node scripts/live-visual-check.mjs",
+    "check:visual:responsive": "node scripts/check-live-responsive.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:contrast && pnpm run build",
     "cf:typegen": "wrangler types",

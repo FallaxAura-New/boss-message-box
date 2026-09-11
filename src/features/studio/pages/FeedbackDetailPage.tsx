@@ -40,6 +40,7 @@ import {
   resetLiveSequence,
 } from "../live-sequence";
 import { getActiveBatch } from "../live-api";
+import { LiveMessageText } from "../components/LiveMessageText";
 
 function formatDate(timestamp: number): string {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -580,9 +581,6 @@ export function FeedbackDetailPage() {
   const hasSequenceContext = studioFeedbackViewSchema.safeParse(new URLSearchParams(location.search).get("view")).success;
 
   if (liveMode) {
-    const contentDensity = item.content.length > 900
-      ? "compact"
-      : item.content.length > 400 ? "dense" : "standard";
     return (
       <div className="studio-live-page" data-entry={instantEntry ? "instant" : undefined}>
         <section
@@ -594,7 +592,7 @@ export function FeedbackDetailPage() {
         >
           <p id="studio-live-keyboard-help" className="sr-only">直播按提交时间从最早一条开始播放：右方向键查看更新的一条，左方向键回看更早的一条。</p>
           <div className="studio-live-frame">
-            <header className="studio-live-identity">
+            <header className="studio-live-identity" role="region" aria-label="昵称与主题" tabIndex={0}>
               <div className="studio-live-signal-mark" aria-hidden="true"><i /><i /><i /></div>
               <div className="studio-live-identity-copy">
                 <h1>{item.nickname}</h1>
@@ -602,11 +600,9 @@ export function FeedbackDetailPage() {
               </div>
             </header>
 
-            <article className={`studio-live-message studio-live-message--${contentDensity}${images.length > 0 ? " studio-live-message--with-images" : ""}`} aria-label="留言内容">
+            <article className={`studio-live-message${images.length > 0 ? " studio-live-message--with-images" : ""}`} aria-label="留言内容">
               <div className="studio-live-message-layout">
-                <div className="studio-live-message-text" role="region" aria-label="完整留言正文" tabIndex={0}>
-                  <p>{item.content}</p>
-                </div>
+                <LiveMessageText content={item.content} />
                 {images.length > 0 && (
                   <aside className={`studio-live-images studio-live-images--${images.length}`} aria-label="留言图片缩略图">
                     {images.map((image, index) => (

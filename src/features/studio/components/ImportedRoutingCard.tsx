@@ -1,5 +1,6 @@
 import { Clock, FileXls } from "@phosphor-icons/react";
 import { useRef, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { Button } from "../../../components/Button";
 import { createRandomUuid } from "../../../lib/random-id";
 import { TOPIC_LABELS } from "../../../shared/contracts";
@@ -17,6 +18,7 @@ export function ImportedRoutingCard({ item, onRouted }: {
   item: LiveImportRoutingItem;
   onRouted: (message: string) => void;
 }) {
+  const location = useLocation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lock = useRef(false);
@@ -39,7 +41,7 @@ export function ImportedRoutingCard({ item, onRouted }: {
   };
   const title = item.topic === "other" ? item.customTopic : TOPIC_LABELS[item.topic];
   return <article className="studio-feedback-card studio-import-routing-card" data-import-row={`${item.jobId}:${item.rowNumber}`}>
-    <div className="studio-feedback-card-main">
+    <Link className="studio-feedback-card-main" to={`/studio/imports/${item.jobId}/rows/${item.rowNumber}`} state={{ returnContext: { url: `${location.pathname}${location.search}` } }}>
       <div className="studio-card-topline">
         <span className="studio-status">Excel 待分流</span>
         <code>第 {item.rowNumber} 行</code>
@@ -53,7 +55,7 @@ export function ImportedRoutingCard({ item, onRouted }: {
         <span><FileXls aria-hidden="true" />{item.filename}</span>
         <span><Clock aria-hidden="true" />{formatDate(item.createdAt)}</span>
       </div>
-    </div>
+    </Link>
     <div className="studio-routing-actions">
       <div className="studio-list-controls">
         <Button type="button" loading={busy} loadingLabel="正在分流" onClick={() => void route("selected")}>加入直播展示</Button>

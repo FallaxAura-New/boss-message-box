@@ -4,6 +4,7 @@ import { MemoryRouter, Outlet, Route, Routes, useLocation } from "react-router-d
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { LiveDisplayPage } from "../../src/features/studio/pages/LiveDisplayPage";
 import { FeedbackListPage } from "../../src/features/studio/pages/FeedbackListPage";
+import { ImportedDetailPage } from "../../src/features/studio/pages/ImportedDetailPage";
 import { LiveImportControl } from "../../src/features/studio/components/LiveImportControl";
 import { resetLiveSequence } from "../../src/features/studio/live-sequence";
 
@@ -28,9 +29,11 @@ function setup(path = "/studio/live-display", liveMode = false) {
   return render(<MemoryRouter initialEntries={[path]}><Routes><Route element={<><Outlet context={{ liveMode }} /><Location /></>}>
     <Route path="/studio/live-display" element={<LiveDisplayPage />} />
     <Route path="/studio/routing" element={<FeedbackListPage view="routing" />} />
+    <Route path="/studio/live-display/:entryId" element={<ImportedDetailPage />} />
+    <Route path="/studio/imports/:jobId/rows/:rowNumber" element={<ImportedDetailPage />} />
   </Route></Routes></MemoryRouter>);
 }
-function mockApi() {
+function mockApi(imported = false) {
   let rotated = false;
   let removed = false;
   let failRotation = false;
@@ -45,9 +48,11 @@ function mockApi() {
     if (url.pathname.endsWith("/live/entries")) {
       const historical = url.searchParams.get("batchId") === old.id;
       const empty = !historical && (rotated || removed);
-      return Response.json({ ok: true, batch: historical ? old : batch, items: empty ? [] : [item], total: empty ? 0 : 1, page: 1, totalPages: empty ? 0 : 1 });
+      return Response.json({ ok: true, batch: historical ? old : batch, items: empty ? [] : [imported ? { ...item, ...importItem, sourceType: "imported", feedbackId: null, importRowNumber: 2 } : item], total: empty ? 0 : 1, page: 1, totalPages: empty ? 0 : 1 });
     }
     if (url.pathname.includes("/live/entries/") && url.pathname.endsWith("/remove")) { removed = true; return Response.json({ ok: true }); }
+    if (url.pathname.endsWith(`/live/entries/${item.id}`)) return Response.json({ ok: true, item: { ...item, ...importItem, sourceType: "imported", feedbackId: null, importRowNumber: 2 } });
+    if (url.pathname.endsWith(`/live/imports/${importItem.jobId}`)) return Response.json({ ok: true, job: { id: importItem.jobId, batchId: batch.id, filename: importItem.filename, createdAt: 2, rows: [{ ...importItem, status: "imported" }] } });
     if (url.pathname.endsWith("/live/rotate")) {
       if (failRotation) return Response.json({ ok: false, error: { message: "网络暂时失败，请重试" } }, { status: 503 });
       rotated = true; return Response.json({ ok: true, batch: { ...batch, count: 0 } });
@@ -61,6 +66,32 @@ function mockApi() {
   return { fetch, failRotation: (value: boolean) => { failRotation = value; } };
 }
 describe("routing and live-batch interfaces", () => {
+  it("opens an imported routing card, renders its full source and returns to the same filters", async () => {
+    const { fetch } = mockApi(); const user = userEvent.setup(); setup("/studio/routing?topic=released_software&importPage=2");
+    await user.click((await screen.findByText("导入昵称")).closest("a")!);
+    expect(await screen.findByText("留言正文")).toBeInTheDocument();
+    expect(screen.getByText("导入正文")).toBeInTheDocument();
+    expect(screen.getByText(/留言.xlsx · 第 2 行/)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "回复内容" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "返回列表" }));
+    expect(screen.getByLabelText("当前位置")).toHaveTextContent("topic=released_software&importPage=2");
+    expect(fetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+  it("opens an imported historical snapshot and retains batch and page on return", async () => {
+    const { fetch } = mockApi(true); const user = userEvent.setup(); setup(`/studio/live-display?batch=${old.id}&page=2`);
+    await user.click(await screen.findByRole("link", { name: "查看留言详情" }));
+    expect(await screen.findByText("留言正文")).toBeInTheDocument();
+    expect(fetch.mock.calls.some(([url]) => String(url).includes(`/live/entries/${item.id}?batchId=${old.id}`))).toBe(true);
+    await user.click(screen.getByRole("link", { name: "返回列表" }));
+    expect(screen.getByLabelText("当前位置")).toHaveTextContent(`batch=${old.id}&page=2`);
+    expect(fetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+  it("shows a recoverable error for a missing imported row", async () => {
+    mockApi(); setup(`/studio/imports/${importItem.jobId}/rows/99`);
+    expect(await screen.findByText("这条导入留言不存在")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "返回列表" })).toHaveAttribute("href", `/studio/routing?job=${importItem.jobId}`);
+    expect(screen.getByRole("button", { name: "重新加载" })).toBeInTheDocument();
+  });
   it("removes a routed card immediately and announces success", async () => {
     const { fetch } = mockApi(); const user = userEvent.setup(); setup("/studio/routing");
     const publicCard = (await screen.findByText("观众昵称")).closest("article")!;

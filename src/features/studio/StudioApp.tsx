@@ -8,6 +8,7 @@ import { PasswordPage } from "./pages/PasswordPage";
 import { SearchPage } from "./pages/SearchPage";
 import { UserDetailPage } from "./pages/UserDetailPage";
 import { LiveDisplayPage } from "./pages/LiveDisplayPage";
+import { ImportedDetailPage } from "./pages/ImportedDetailPage";
 import { StudioSessionProvider } from "./session";
 import { useStudioSession } from "./use-studio-session";
 import "./studio.css";
@@ -39,6 +40,8 @@ export function StudioApp() {
             <Route path="routing" element={<FeedbackListPage view="routing" />} />
             <Route path="moderation" element={<FeedbackListPage view="moderation" />} />
             <Route path="live-display" element={<LiveDisplayPage />} />
+            <Route path="live-display/:entryId" element={<ImportedDetailPage />} />
+            <Route path="imports/:jobId/rows/:rowNumber" element={<ImportedDetailPage />} />
             <Route path="unreplied" element={<FeedbackListPage view="unreplied" />} />
             <Route path="replied" element={<Navigate to="/studio/replied/all" replace />} />
             <Route path="replied/all" element={<FeedbackListPage view="replied" />} />

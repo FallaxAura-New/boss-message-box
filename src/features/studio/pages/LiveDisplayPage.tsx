@@ -103,6 +103,7 @@ export function LiveDisplayPage() {
         <h2>{item.nickname}</h2><p className="studio-live-entry-content">{item.content}</p>
         <p>{item.sourceType === "imported" ? `导入于 ${batchTime(item.addedAt)} · ${item.filename} · 第 ${item.importRowNumber} 行` : `提交于 ${batchTime(item.createdAt)}`}</p>
         {item.feedbackId && <Link to={`/studio/feedback/${item.feedbackId}?view=live_display`} state={{ returnContext: { url: `/studio/live-display?${query}` } }}>查看原留言与回复</Link>}
+        {item.sourceType === "imported" && <Link to={`/studio/live-display/${item.id}?batch=${result.batch.id}`} state={{ returnContext: { url: `/studio/live-display?${query}` } }}>查看留言详情</Link>}
         {item.imageCount > 0 && <p>{item.imageCount} 张图片（原留言中查看）</p>}
         {!archived && <Button type="button" variant="quiet" disabled={busy} onClick={() => void remove(item.id)}>取消直播展示</Button>}
       </div>

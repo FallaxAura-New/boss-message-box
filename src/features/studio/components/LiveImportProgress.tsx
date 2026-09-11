@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { Button } from "../../../components/Button";
 import { createRandomUuid } from "../../../lib/random-id";
 import type { LiveImportJob } from "../../../shared/live-contracts";
@@ -6,6 +7,7 @@ import { getLiveImportJob, resumeLiveImport, retryLiveImport } from "../live-api
 
 const STATUS = { pending: "等待分类", processing: "正在分类", failed: "分类失败" };
 export function LiveImportProgress({ jobId, archived, onUpdated }: { jobId: string; archived: boolean; onUpdated: () => void }) {
+  const location = useLocation();
   const [job, setJob] = useState<LiveImportJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -55,7 +57,7 @@ export function LiveImportProgress({ jobId, archived, onUpdated }: { jobId: stri
       {!archived && failed.length > 0 && <Button type="button" variant="secondary" loading={busy} loadingLabel="正在重试" onClick={() => void retry(failed.map(r => r.rowNumber))}>重试失败行</Button>}
       <ol className="studio-import-rows">
         {job.rows.slice(page * 20, page * 20 + 20).map(row => <li key={row.rowNumber}>
-          <strong>第 {row.rowNumber} 行 · {row.nickname}</strong><p>{row.status === "imported"
+          <Link to={`/studio/imports/${jobId}/rows/${row.rowNumber}`} state={{ returnContext: { url: `${location.pathname}${location.search}` } }}><strong>第 {row.rowNumber} 行 · {row.nickname}</strong></Link><p>{row.status === "imported"
             ? row.routingStatus === "selected" ? "已加入直播展示" : row.routingStatus === "not_selected" ? "不加入直播展示" : "等待人工分流"
             : STATUS[row.status]}{row.errorCode === "batch_archived" ? "：原批次已归档" : row.status === "failed" ? "：AI 未返回有效分类，可重试" : ""}</p>
           {row.status === "failed" && !archived && <Button type="button" variant="quiet" disabled={busy} onClick={() => void retry([row.rowNumber])}>重试第 {row.rowNumber} 行</Button>}
