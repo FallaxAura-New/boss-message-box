@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { liveImportSchema, liveRotateSchema, liveRoutingSchema } from "../../src/shared/live-contracts";
+import { liveImportSchema, liveMoveSchema, liveRotateSchema, liveRoutingSchema } from "../../src/shared/live-contracts";
+import { moveLiveEntry } from "../infra/d1-live-order";
 import { topicSchema } from "../../src/shared/contracts";
 import { PublicError } from "../core/errors";
 import { D1LiveRepository } from "../infra/d1-live-repository";
@@ -117,6 +118,12 @@ liveRoutes.post("/rotate", async c => {
 liveRoutes.post("/entries/:entryId/remove", async c => {
   const input = parse(liveRotateSchema, await json(c.req.raw));
   await new D1LiveRepository(c.env.BOSS_MESSAGE_DB).remove({ ...input, entryId: parse(uuid, c.req.param("entryId")), adminId: c.get("studioSession").admin.id, now: Date.now() });
+  return c.json({ ok: true });
+});
+liveRoutes.post("/entries/:entryId/move", async c => {
+  const input = parse(liveMoveSchema, await json(c.req.raw));
+  await moveLiveEntry(c.env.BOSS_MESSAGE_DB, { ...input, entryId: parse(uuid, c.req.param("entryId")),
+    adminId: c.get("studioSession").admin.id, now: Date.now() });
   return c.json({ ok: true });
 });
 liveRoutes.use("/imports/*", async (c, next) => {

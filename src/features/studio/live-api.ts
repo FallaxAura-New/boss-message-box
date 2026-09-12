@@ -5,6 +5,7 @@ import type {
   LiveImportJob,
   LiveImportRoutingListSuccess,
   LiveListSuccess,
+  LiveMoveInput,
 } from "../../shared/live-contracts";
 import type { Topic } from "../../shared/contracts";
 import { studioRequest } from "./api";
@@ -30,6 +31,8 @@ export async function rotateLiveBatch(batchId: string, requestKey: string) {
 }
 export const removeLiveEntry = (entryId: string, batchId: string, requestKey: string) => studioRequest<{ ok: true }>(
   `/api/studio/live/entries/${encodeURIComponent(entryId)}/remove`, post({ batchId, requestKey }));
+export const moveLiveEntry = (entryId: string, input: LiveMoveInput) => studioRequest<{ ok: true }>(
+  `/api/studio/live/entries/${encodeURIComponent(entryId)}/move`, post(input));
 export const createLiveImport = (input: LiveImportInput, file: File) => {
   const form = new FormData();
   form.set("file", file);

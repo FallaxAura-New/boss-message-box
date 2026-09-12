@@ -1,13 +1,14 @@
 import type { LiveBatch, LiveEntry, LiveListSuccess } from "../../src/shared/live-contracts";
 import { STUDIO_PAGE_SIZE } from "../../src/shared/studio-contracts";
 import { PublicError } from "../core/errors";
+import { liveEntryOrder } from "./d1-live-order";
 
 interface BatchRow { id: string; started_at: number; archived_at: number | null; status: "active" | "archived"; count: number; revision: number }
 interface EntryRow {
   id: string; batch_id: string; source_type: "public" | "imported"; feedback_id: string | null;
   nickname: string; content: string; topic: LiveEntry["topic"]; custom_topic: string | null;
   source_created_at: number; import_order: number; added_at: number; filename: string | null; import_row_number: number | null;
-  queue_group: number;
+  queue_group: number; sort_order: number;
 }
 const batchSelect = `SELECT b.*, (SELECT COUNT(*) FROM live_entries e WHERE e.batch_id = b.id AND e.removed_at IS NULL) AS count FROM live_batches b`;
 const entrySelect = `SELECT e.*, j.filename FROM live_entries e LEFT JOIN live_import_jobs j ON j.id = e.import_job_id`;
@@ -33,7 +34,7 @@ export class D1LiveRepository {
   async list(id: string | undefined, page: number): Promise<LiveListSuccess> {
     const batch = await this.batch(id);
     const rows = await this.db.prepare(`${entrySelect} WHERE e.batch_id = ? AND e.removed_at IS NULL
-      ORDER BY e.queue_group ASC, e.source_created_at ASC, e.import_order ASC, e.id ASC LIMIT ? OFFSET ?`)
+      ORDER BY ${liveEntryOrder("e.")} LIMIT ? OFFSET ?`)
       .bind(batch.id, STUDIO_PAGE_SIZE, (page - 1) * STUDIO_PAGE_SIZE).all<EntryRow>();
     return { ok: true, batch, items: await Promise.all(rows.results.map(r => this.mapEntry(r))),
       page, total: batch.count, totalPages: Math.ceil(batch.count / STUDIO_PAGE_SIZE) };
@@ -54,7 +55,7 @@ export class D1LiveRepository {
       feedbackNumber: r.id.slice(0, 8).toUpperCase(), userId: null, nickname: r.nickname,
       content: r.content, contentPreview: r.content.slice(0, 240), topic: r.topic, customTopic: r.custom_topic,
       createdAt: r.source_created_at, importOrder: r.import_order, addedAt: r.added_at,
-      queueGroup: r.queue_group,
+      queueGroup: r.queue_group, sortOrder: r.sort_order,
       filename: r.filename, importRowNumber: r.import_row_number, imageCount: images.length,
       images, replies: [], replyCount: 0, latestReplyAdmin: null,
       status: "unreplied", isTodo: false, maskedPhone: null, shopPhone: null,
@@ -68,9 +69,9 @@ export class D1LiveRepository {
     const order = direction === "next" ? "ASC" : "DESC";
     const row = await this.db.prepare(`SELECT id FROM live_entries WHERE batch_id = ? AND removed_at IS NULL
       AND EXISTS (SELECT 1 FROM live_batches WHERE id = batch_id AND status = 'active')
-      ${current ? `AND (queue_group, source_created_at, import_order, id) ${operator} (?, ?, ?, ?)` : ""}
-      ORDER BY queue_group ${order}, source_created_at ${order}, import_order ${order}, id ${order} LIMIT 1`)
-      .bind(batchId, ...(current ? [current.queueGroup, current.createdAt, current.importOrder, current.id] : [])).first<{ id: string }>();
+      ${current ? `AND (sort_order, queue_group, source_created_at, import_order, id) ${operator} (?, ?, ?, ?, ?)` : ""}
+      ORDER BY ${liveEntryOrder("", order)} LIMIT 1`)
+      .bind(batchId, ...(current ? [current.sortOrder, current.queueGroup, current.createdAt, current.importOrder, current.id] : [])).first<{ id: string }>();
     return row?.id ?? null;
   }
   async beginPlayback(now: number): Promise<void> {

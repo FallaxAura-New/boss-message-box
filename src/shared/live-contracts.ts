@@ -11,6 +11,11 @@ export const liveRoutingSchema = z.object({
   routingStatus: z.enum(["selected", "not_selected"]),
 }).strict();
 export const liveRotateSchema = z.object({ requestKey: z.string().uuid(), batchId: z.string().uuid() }).strict();
+export const liveMoveSchema = liveRotateSchema.extend({
+  expectedRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  position: z.number().int().min(1).max(300_000),
+}).strict();
+export type LiveMoveInput = z.infer<typeof liveMoveSchema>;
 export const liveImportRowSchema = z.object({
   rowNumber: z.number().int().min(2).max(LIVE_IMPORT_MAX_ROWS + 1),
   nickname: z.string().trim().normalize().min(1, "用户名不能为空").max(40, "用户名不能超过 40 字符"),
@@ -38,7 +43,7 @@ export interface LiveBatch {
 export interface LiveEntry extends StudioFeedbackDetail {
   batchId: string; sourceType: "public" | "imported"; feedbackId: string | null;
   importOrder: number; addedAt: number; filename: string | null; importRowNumber: number | null;
-  queueGroup: number;
+  queueGroup: number; sortOrder: number;
 }
 export interface LiveListSuccess {
   ok: true; batch: LiveBatch; items: LiveEntry[]; total: number; page: number; totalPages: number;

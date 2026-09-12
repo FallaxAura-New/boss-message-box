@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { D1LiveRepository } from "../../worker/infra/d1-live-repository";
+import { moveLiveEntry } from "../../worker/infra/d1-live-order";
 import { D1StudioRepository } from "../../worker/infra/d1-studio-repositories";
 import { D1FeedbackRepository } from "../../worker/infra/d1-repositories";
 import { LiveImportService } from "../../worker/services/live-import-service";
@@ -152,6 +153,115 @@ describe("separate moderation, routing, replies and live membership", () => {
     const newer = await seed("kept", 200); const older = await seed("kept", 1);
     await route(newer, "selected", next.id); await route(older, "selected", next.id);
     expect((await live.list(next.id, 1)).items.map(e => e.feedbackId)).toEqual([newer, older]);
+  });
+});
+
+describe("administrator-defined live order", () => {
+  async function entries(count = 3) {
+    for (let i = 0; i < count; i++) await route(await seed("kept", i + 10), "selected");
+    return (await live.list(initialBatch, 1)).items;
+  }
+  async function input(entryId: string, position: number) {
+    return { entryId, position, batchId: initialBatch, expectedRevision: (await live.batch()).revision,
+      requestKey: crypto.randomUUID(), adminId, now: 200 };
+  }
+  const ids = async (page = 1) => (await live.list(initialBatch, page)).items.map(e => e.id);
+
+  it("moves in both directions and uses the same persisted order for forward/backward playback", async () => {
+    const [a, b, c] = await entries();
+    await moveLiveEntry(db, await input(c!.id, 1));
+    expect(await ids()).toEqual([c!.id, a!.id, b!.id]);
+    expect(await live.sequence(initialBatch)).toBe(c!.id);
+    expect(await live.sequence(initialBatch, c!.id)).toBe(a!.id);
+    expect(await live.sequence(initialBatch, a!.id, "previous")).toBe(c!.id);
+    expect(await live.sequence(initialBatch, b!.id)).toBeNull();
+    await live.beginPlayback(300);
+    await moveLiveEntry(db, await input(c!.id, 3));
+    expect(await ids()).toEqual([a!.id, b!.id, c!.id]);
+    expect((await live.entry(c!.id, initialBatch)).createdAt).toBe(c!.createdAt);
+    expect((await live.entry(c!.id, initialBatch)).content).toBe(c!.content);
+    expect(await live.sequence(initialBatch, b!.id)).toBe(c!.id);
+  });
+  it("moves across pagination boundaries without losing or duplicating entries", async () => {
+    const firstPage = await entries(31);
+    const last = (await live.list(initialBatch, 2)).items[0]!;
+    await moveLiveEntry(db, await input(last.id, 1));
+    expect((await ids())[0]).toBe(last.id);
+    expect(await ids(2)).toEqual([firstPage[29]!.id]);
+    await moveLiveEntry(db, await input(last.id, 31));
+    expect(await ids()).toEqual(firstPage.map(e => e.id));
+    expect(await ids(2)).toEqual([last.id]);
+    expect((await live.batch()).count).toBe(31);
+  });
+  it("sorts public and imported entries together and appends new/reselected entries before playback", async () => {
+    const [a, b] = await entries(2);
+    const service = new LiveImportService(db, async () => ({ topic: "appeal", customTopic: null }));
+    const job = importInput(2); await service.create(job, adminId, 1000); await service.run();
+    const selectRow = (rowNumber: number) => service.route({ jobId: job.jobId, rowNumber, batchId: initialBatch,
+      requestKey: crypto.randomUUID(), routingStatus: "selected", adminId, now: 2000 });
+    await selectRow(2);
+    const imported = (await live.list(initialBatch, 1)).items[2]!;
+    await moveLiveEntry(db, await input(imported.id, 1));
+    const early = await seed("kept", 0); await route(early, "selected");
+    await selectRow(3);
+    expect((await live.list(initialBatch, 1)).items.map(e => e.feedbackId)).toEqual([null, a!.feedbackId, b!.feedbackId, early, null]);
+    await live.remove({ entryId: imported.id, batchId: initialBatch, adminId, requestKey: crypto.randomUUID(), now: 3000 });
+    await selectRow(2);
+    expect((await ids()).at(-1)).toBe(imported.id);
+    await route(a!.feedbackId!, "not_selected"); await route(a!.feedbackId!, "selected");
+    expect((await ids()).at(-1)).toBe(a!.id);
+  });
+  it("deduplicates retries, rejects changed payloads and rejects stale revisions without writing", async () => {
+    const [a, , c] = await entries();
+    const request = await input(c!.id, 1);
+    await Promise.all([moveLiveEntry(db, request), moveLiveEntry(db, request)]);
+    expect((await live.batch()).revision).toBe(request.expectedRevision + 1);
+    expect((await ids())[0]).toBe(c!.id);
+    await expect(moveLiveEntry(db, { ...request, position: 2 })).rejects.toMatchObject({ status: 409 });
+    await expect(moveLiveEntry(db, { ...request, entryId: a!.id, requestKey: crypto.randomUUID() })).rejects.toMatchObject({ status: 409 });
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM live_order_requests").first()).toEqual({ n: 1 });
+  });
+  it("allows exactly one of two administrators' concurrent moves against the same revision", async () => {
+    const [a, b, c] = await entries();
+    const first = await input(c!.id, 1);
+    const second = { ...await input(a!.id, 3), adminId: "admin-order-test" };
+    await db.prepare("INSERT INTO admins(id, username, password_hash, created_at, updated_at) SELECT ?, ?, password_hash, 1, 1 FROM admins WHERE id = ?")
+      .bind(second.adminId, second.adminId, adminId).run();
+    const results = await Promise.allSettled([moveLiveEntry(db, first), moveLiveEntry(db, second)]);
+    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    expect([ [c!.id, a!.id, b!.id], [b!.id, c!.id, a!.id] ]).toContainEqual(await ids());
+    expect((await live.batch()).revision).toBe(first.expectedRevision + 1);
+  });
+  it("rejects removed/foreign entries, out-of-range positions and changes after membership updates", async () => {
+    const [a, b] = await entries(2);
+    const request = await input(a!.id, 2);
+    await route(await seed(), "selected");
+    await expect(moveLiveEntry(db, request)).rejects.toMatchObject({ status: 409 });
+    await live.remove({ entryId: b!.id, batchId: initialBatch, adminId, requestKey: crypto.randomUUID(), now: 300 });
+    for (const invalid of [await input(b!.id, 1), await input(crypto.randomUUID(), 1), await input(a!.id, 999)]) {
+      await expect(moveLiveEntry(db, invalid)).rejects.toMatchObject({ status: 409 });
+    }
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM live_order_requests").first()).toEqual({ n: 0 });
+  });
+  it("preserves archived custom order and starts the successor with default ordering", async () => {
+    const [a, b, c] = await entries();
+    await moveLiveEntry(db, await input(c!.id, 1));
+    const request = await input(a!.id, 1);
+    const next = await live.rotate({ batchId: initialBatch, adminId, requestKey: crypto.randomUUID(), now: 500 });
+    await expect(moveLiveEntry(db, request)).rejects.toMatchObject({ status: 409 });
+    expect(await ids()).toEqual([c!.id, a!.id, b!.id]);
+    const newer = await seed("kept", 30); const older = await seed("kept", 0);
+    await route(newer, "selected", next.id); await route(older, "selected", next.id);
+    expect((await live.list(next.id, 1)).items.map(e => e.feedbackId)).toEqual([older, newer]);
+  });
+  it("rolls back the audit and revision if the order update fails", async () => {
+    const list = await entries(); const request = await input(list[2]!.id, 1);
+    await db.prepare("CREATE TRIGGER order_test_failure BEFORE UPDATE OF sort_order ON live_entries BEGIN SELECT RAISE(ABORT, 'order test failure'); END").run();
+    try { await expect(moveLiveEntry(db, request)).rejects.toThrow(); }
+    finally { await db.prepare("DROP TRIGGER order_test_failure").run(); }
+    expect(await ids()).toEqual(list.map(e => e.id));
+    expect((await live.batch()).revision).toBe(request.expectedRevision);
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM live_order_requests").first()).toEqual({ n: 0 });
   });
 });
 
@@ -317,10 +427,19 @@ describe("live API permission boundary", () => {
     expect((await request(`/live/imports/${jobId}/rows/2/routing`, "POST", importRouteInput)).status).toBe(200);
     expect(await (await request("/live/imports/routing")).json()).toMatchObject({ total: 0, items: [] });
     const entry = (await live.list(initialBatch, 1)).items[0]!;
+    const moveInput = { batchId: initialBatch, requestKey: crypto.randomUUID(), expectedRevision: (await live.batch()).revision, position: 1 };
+    const movePath = `/live/entries/${entry.id}/move`;
+    expect((await SELF.fetch(`${origin}/api/studio${movePath}`, { method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(moveInput) })).status).toBe(401);
+    expect((await request(movePath, "POST", moveInput, { ...headers, Origin: "https://evil.example" })).status).toBe(403);
+    for (const position of [0, -1, 1.5, "2"]) expect((await request(movePath, "POST", { ...moveInput, position })).status).toBe(400);
+    expect((await request(movePath, "POST", { ...moveInput, adminId: "forged-admin" })).status).toBe(400);
+    const moved = await request(movePath, "POST", moveInput);
+    expect(moved.status).toBe(200); expect(moved.headers.get("Cache-Control")).toBe("private, no-store");
     const archived = await live.rotate({ batchId: initialBatch, requestKey: crypto.randomUUID(), adminId, now: 2000 });
     const normalHistory = await request(`/live/entries?batchId=${initialBatch}`);
     expect(normalHistory.status).toBe(200); expect(normalHistory.headers.get("Cache-Control")).toBe("private, no-store");
     await db.prepare("UPDATE admin_sessions SET mode = 'live'").run();
+    expect((await request(movePath, "POST", moveInput)).status).toBe(403);
     expect((await request(`/live/entries?batchId=${initialBatch}`)).status).toBe(409);
     expect((await request(`/live/entries/${entry.id}?batchId=${initialBatch}`)).status).toBe(409);
     expect((await request("/live/batches")).status).toBe(403);

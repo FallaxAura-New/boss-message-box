@@ -86,6 +86,8 @@ const checks = [
   ["直播正文 / 留言表面凹层", "livePaper", "livePlateDeep", 4.5],
   ["直播黄铜装饰 / 面板（非文本 3:1）", "liveBrassDeep", "livePlate", 3],
   ["正文 / 页面", "text", "bg", 4.5],
+  ["直播排序文字 / 排序工具区", "text", "surfaceRaised", 4.5],
+  ["直播排序输入文字 / 输入底色", "text", "bgDeep", 4.5],
   ["次级文字 / 页面", "textSecondary", "bg", 4.5],
   ["弱化文字 / 表单面板", "textMuted", "surface", 4.5],
   ["主按钮文字 / 强调色", "accentInk", "accent", 4.5],
