@@ -46,7 +46,7 @@ export function LiveDisplayPage() {
     restoreOrderFocus.current = null;
     const previous = focus.element;
     if (previous?.isConnected && !previous.matches(":disabled")) previous.focus();
-    else document.querySelector<HTMLInputElement>(`[data-feedback-id="${focus.entryId}"] .studio-live-order input`)?.focus();
+    else document.querySelector<HTMLInputElement>(`[data-feedback-id="${focus.entryId}"] .studio-live-slot-number`)?.focus();
   }, [busy, result]);
   useEffect(() => {
     const controller = new AbortController();
@@ -111,7 +111,7 @@ export function LiveDisplayPage() {
       if (destinationPage === 1) nextQuery.delete("page"); else nextQuery.set("page", String(destinationPage));
       setLoaded({ key: `${batchId ?? "current"}:${destinationPage}:${liveMode}`, result: value });
       if (destinationPage !== page) setQuery(nextQuery);
-      restoreOrderFocus.current = { entryId: request.entryId, element: focused?.closest(".studio-live-order") ? focused : null };
+      restoreOrderFocus.current = { entryId: request.entryId, element: focused?.closest(".studio-live-slot") ? focused : null };
       setNotice(`已移到第 ${request.input.position} 条。`);
     } catch (reason) {
       if (saved) moveRequest.current = null;
@@ -147,8 +147,11 @@ export function LiveDisplayPage() {
     {!result && !error && <StudioLoading label="正在加载直播批次" />}
     {result && <p className="studio-total">共 {result.total} 条</p>}
     {result?.items.length === 0 && <StudioEmpty title={archived ? "这个归档批次没有留言" : "当前直播展示组为空"} description={liveMode ? "等待工作人员从待分流加入留言，画面将自动更新。" : "请从待分流加入观众留言或已分类的 Excel 行。"} />}
-    {result && !liveMode && <ol role="list" className="studio-feedback-grid studio-live-ordered-list" aria-label="直播展示顺序" start={(result.page - 1) * STUDIO_PAGE_SIZE + 1}>{result.items.map((item, index) => <li key={item.id}><article className="studio-feedback-card" data-feedback-id={item.id}>
-      {archived ? <p className="studio-live-position studio-live-archived-position">第 {(result.page - 1) * STUDIO_PAGE_SIZE + index + 1} 条</p>
+    {result && !liveMode && <ol role="list" className="studio-feedback-grid studio-live-ordered-list" aria-label="直播展示顺序" start={(result.page - 1) * STUDIO_PAGE_SIZE + 1}>{result.items.map((item, index) => <li key={item.id}><article className="studio-feedback-card studio-live-row" data-feedback-id={item.id}>
+      {archived ? <div className="studio-live-slot">
+        <span className="studio-live-slot-number" aria-hidden="true">{(result.page - 1) * STUDIO_PAGE_SIZE + index + 1}</span>
+        <span className="sr-only">第 {(result.page - 1) * STUDIO_PAGE_SIZE + index + 1} 条</span>
+      </div>
         : <LiveOrderControl nickname={item.nickname} position={(result.page - 1) * STUDIO_PAGE_SIZE + index + 1}
           total={result.total} disabled={controlsDisabled} saving={movingId === item.id} onMove={position => void move(item.id, position)} />}
       <div className="studio-feedback-card-main"><p>{item.sourceType === "imported" ? "Excel 导入" : "观众提交"} · {item.topic === "other" ? item.customTopic : TOPIC_LABELS[item.topic]}</p>

@@ -62,7 +62,7 @@ try {
     await page.goto(`${base}/studio/live-display`);
     await expect(list.getByRole("listitem")).toHaveCount(30);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${width}px page overflow`);
-    const targets = await page.locator(".studio-live-order input, .studio-live-order button").evaluateAll(elements => elements.map(element => {
+    const targets = await page.locator(".studio-live-slot input, .studio-live-slot button").evaluateAll(elements => elements.map(element => {
       const rect = element.getBoundingClientRect(); return { width: rect.width, height: rect.height, right: rect.right };
     }));
     assert(targets.every(rect => rect.height >= 44 && rect.right <= width), `${width}px controls inaccessible`);
@@ -76,17 +76,17 @@ try {
   await page.reload();
   await expect(list.getByRole("heading").nth(1)).toHaveText("排序测试观众3");
   await page.getByRole("button", { name: "下一页", exact: true }).click();
-  const position = page.getByRole("spinbutton", { name: "排序测试观众31的目标序号" });
+  const position = page.getByRole("spinbutton", { name: "排序测试观众31的展示序号" });
   await position.fill("1"); await position.press("Enter");
   await expect(list.getByRole("heading").first()).toHaveText("排序测试观众31");
-  await expect(page.getByRole("spinbutton", { name: "排序测试观众31的目标序号" })).toBeFocused();
+  await expect(page.getByRole("spinbutton", { name: "排序测试观众31的展示序号" })).toBeFocused();
   assert.equal(mutations.length, 2);
   // The pre-existing body min-width: 20rem clips 375px at 200% root text sizing.
   // Keep that legacy shell limitation explicit; verify scaled ordering at 768px.
   await page.setViewportSize({ width: 768, height: 800 });
   await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
   assert.equal(await page.evaluate(() => {
-    const elements = [document.body, ...document.querySelectorAll(".studio-live-order input, .studio-live-order button")];
+    const elements = [document.body, ...document.querySelectorAll(".studio-live-slot input, .studio-live-slot button")];
     return elements.some(element => element.getBoundingClientRect().right > innerWidth + 1);
   }), false, "200% text control clipping");
   await form("排序测试观众31").scrollIntoViewIfNeeded();

@@ -65,13 +65,13 @@ describe("live ordering controls", () => {
   });
   it("moves directly across pages using a keyboard-submitted position and follows the moved row", async () => {
     const api = fixture(31); const user = userEvent.setup(); setup("/studio/live-display?page=2");
-    const input = await screen.findByRole("spinbutton", { name: "观众31的目标序号" });
+    const input = await screen.findByRole("spinbutton", { name: "观众31的展示序号" });
     await user.clear(input); await user.type(input, "1{Enter}");
     await screen.findByRole("status");
     expect(api.requests[0]?.body.position).toBe(1);
     await waitFor(() => expect(order()[0]).toBe("观众31"));
     expect(screen.getByLabelText("位置")).not.toHaveTextContent("page=2");
-    const moved = screen.getByRole("spinbutton", { name: "观众31的目标序号" });
+    const moved = screen.getByRole("spinbutton", { name: "观众31的展示序号" });
     await user.clear(moved); await user.type(moved, "31{Enter}");
     await waitFor(() => expect(screen.getByLabelText("位置")).toHaveTextContent("page=2"));
     await waitFor(() => expect(order()).toEqual(["观众31"]));
@@ -82,7 +82,8 @@ describe("live ordering controls", () => {
     const user = userEvent.setup(); setup();
     await screen.findByRole("form", { name: "观众2的展示顺序" });
     await user.click(within(controls("观众2")).getByRole("button", { name: "上移" }));
-    expect(screen.getByRole("button", { name: "保存中" })).toBeDisabled();
+    expect(within(controls("观众2")).getByText("保存中")).toBeInTheDocument();
+    expect(controls("观众2")).toHaveAttribute("aria-busy", "true");
     expect(within(controls("观众1")).getByRole("button", { name: "下移" })).toBeDisabled();
     expect(screen.getByRole("combobox")).toBeDisabled();
     release();
@@ -107,10 +108,10 @@ describe("live ordering controls", () => {
   });
   it("does not send empty, fractional or out-of-range positions", async () => {
     const api = fixture(); const user = userEvent.setup(); setup();
-    const input = await screen.findByRole("spinbutton", { name: "观众1的目标序号" });
+    const input = await screen.findByRole("spinbutton", { name: "观众1的展示序号" });
     for (const value of ["", "0", "4", "1.5"]) {
       await user.clear(input); if (value) await user.type(input, value);
-      await user.click(within(controls("观众1")).getByRole("button", { name: "移动" }));
+      await user.keyboard("{Enter}");
     }
     expect(api.requests).toHaveLength(0);
   });
