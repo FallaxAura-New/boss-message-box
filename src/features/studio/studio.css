@@ -16,9 +16,8 @@
   width: 17rem;
   min-height: 100vh;
   min-height: 100svh;
-  /* The nav grew past a 800px viewport; without this the account row is pushed off-screen. */
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  /* Brand and account row stay pinned; only the nav scrolls, so the logout is always reachable. */
+  overflow: hidden;
   padding: var(--space-6) var(--space-4);
   border-inline-end: 1px solid var(--color-border);
   background: oklch(0.145 0.026 254 / 0.97);
@@ -43,8 +42,15 @@
 
 .studio-nav {
   display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
   gap: var(--space-1);
   margin-block-start: var(--space-10);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Slim rail instead of a hidden overlay bar: on a short window the nav is visibly cut off. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
 }
 
 .studio-nav-label {

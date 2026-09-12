@@ -162,24 +162,47 @@ try {
     await page.goto(`${baseUrl}/studio/unreplied`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "未回复留言" }).waitFor();
 
+    let logoutOpened = false;
     if (viewport.width < 1024) {
       await page.locator(".studio-mobile-menu > summary").click();
       await page.locator(".studio-mobile-menu[open] .studio-logout-row").click();
+      logoutOpened = true;
     } else {
+      // Measure the sidebar instead of only clicking it: a clipped account row used to surface
+      // as a 30s click timeout that aborted the whole run before reporting anything.
+      const sidebarFit = await page.evaluate(() => {
+        const footer = document.querySelector(".studio-sidebar .studio-sidebar-footer");
+        const nav = document.querySelector(".studio-sidebar .studio-nav");
+        if (!footer || !nav) return null;
+        return {
+          footerBottom: Math.round(footer.getBoundingClientRect().bottom),
+          viewport: window.innerHeight,
+          footerClipped: footer.getBoundingClientRect().bottom > window.innerHeight + 1,
+          navClipped: nav.scrollHeight > nav.clientHeight + 1 && getComputedStyle(nav).overflowY !== "auto",
+        };
+      });
+      if (sidebarFit?.footerClipped) {
+        failures.push(`desktop sidebar footer is clipped: ${sidebarFit.footerBottom}px in a ${sidebarFit.viewport}px viewport`);
+      }
+      if (sidebarFit?.navClipped) failures.push("desktop sidebar nav is clipped without scrolling");
+
       const desktopLogout = page.locator('.studio-sidebar .studio-icon-button[aria-label="退出登录"]');
-      if (!(await desktopLogout.isVisible())) {
-        const shellState = await page.evaluate(() => ({
-          width: window.innerWidth,
-          mode: document.querySelector(".studio-shell")?.getAttribute("data-mode"),
-          sidebarDisplay: getComputedStyle(document.querySelector(".studio-sidebar")).display,
-          href: location.href,
-        }));
-        failures.push(`desktop logout is hidden: ${JSON.stringify(shellState)}`);
+      if (sidebarFit?.footerClipped || !(await desktopLogout.isVisible())) {
+        if (!sidebarFit?.footerClipped) {
+          const shellState = await page.evaluate(() => ({
+            width: window.innerWidth,
+            mode: document.querySelector(".studio-shell")?.getAttribute("data-mode"),
+            sidebarDisplay: getComputedStyle(document.querySelector(".studio-sidebar")).display,
+            href: location.href,
+          }));
+          failures.push(`desktop logout is hidden: ${JSON.stringify(shellState)}`);
+        }
       } else {
         await desktopLogout.click();
+        logoutOpened = true;
       }
     }
-    if (!failures.some((failure) => failure.startsWith("desktop logout is hidden"))) {
+    if (logoutOpened) {
       const logoutDialog = page.getByRole("dialog");
       await logoutDialog.getByRole("heading", { name: "确定退出登录吗？" }).waitFor();
       await logoutDialog.locator("button.button--quiet", { hasText: "取消" }).click();
