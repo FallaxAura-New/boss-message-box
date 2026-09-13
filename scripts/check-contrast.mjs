@@ -92,6 +92,8 @@ const checks = [
   ["弱化文字 / 表单面板", "textMuted", "surface", 4.5],
   ["主按钮文字 / 强调色", "accentInk", "accent", 4.5],
   ["错误文字 / 表单面板", "danger", "surface", 4.5],
+  ["删除回复 / 悬停底色", "danger", "surfaceHover", 4.5],
+  ["确认删除 / 危险操作底色", "danger", "dangerSurface", 4.5],
   ["成功文字 / 表单面板", "success", "surface", 4.5],
   ["状态文字 / 表单面板", "neutralStatus", "surface", 4.5],
 ];

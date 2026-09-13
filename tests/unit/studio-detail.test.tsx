@@ -102,6 +102,48 @@ function mockDetailApi() {
 }
 
 describe("Studio reply interaction", () => {
+  it("confirms deletion, retains the draft on failure and success, and updates the history", async () => {
+    const reply = { id: "reply-delete", content: "需要删除的历史回复", replyType: "message", adminUsername: "fa", createdAt: Date.UTC(2026, 8, 3, 1) };
+    let attempts = 0;
+    let finishDelete: (() => void) | undefined;
+    const changed = vi.fn();
+    window.addEventListener("studio:changed", changed);
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        attempts++;
+        if (attempts === 1) return Response.json({ error: { message: "删除失败，请重试" } }, { status: 500 });
+        await new Promise<void>(resolve => { finishDelete = resolve; });
+        return Response.json(detail);
+      }
+      return Response.json({ ...detail, item: { ...detail.item, replies: [reply], status: "replied", replyCount: 1 } });
+    }));
+    const user = userEvent.setup();
+    renderDetail(false);
+    const remove = await screen.findByRole("button", { name: "删除第 1 条回复" });
+    const draft = screen.getByRole("textbox", { name: "回复内容" });
+    await user.type(draft, "尚未提交的新回复");
+    await user.click(remove);
+    expect(attempts).toBe(0);
+    await user.click(screen.getAllByRole("button", { name: "取消" }).at(-1)!);
+    expect(attempts).toBe(0);
+    await user.click(remove);
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("删除失败，请重试");
+    expect(screen.getByText(reply.content)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
+    expect(screen.getByRole("button", { name: "正在处理" })).toBeDisabled();
+    finishDelete?.();
+    expect(await screen.findByText("回复已删除，原始留言保持不变。")).toBeInTheDocument();
+    expect(screen.queryByText(reply.content)).not.toBeInTheDocument();
+    expect(screen.getByText("还没有回复。")).toBeInTheDocument();
+    expect(screen.getByText("完整留言")).toBeInTheDocument();
+    expect(draft).toHaveValue("尚未提交的新回复");
+    expect(screen.getByText("历史回复")).toHaveFocus();
+    expect(attempts).toBe(2);
+    expect(changed).toHaveBeenCalledTimes(1);
+    window.removeEventListener("studio:changed", changed);
+  });
+
   it("shows the shop phone directly in normal mode without a reveal action", async () => {
     mockDetailApi();
     renderDetail(false);

@@ -650,11 +650,15 @@ input.studio-live-slot-number:disabled { opacity: 0.6; }
 .studio-phone-value small { color: var(--color-text-muted); font-family: var(--font-sans); font-size: var(--type-caption); }
 .studio-phone-value.is-locked { justify-content: flex-start; color: var(--color-text-muted); }
 
-.studio-inline-empty { margin-block-start: var(--space-4); color: var(--color-text-muted); }
+.studio-inline-empty,
+.studio-reply-notice { margin-block-start: var(--space-4); color: var(--color-text-muted); }
 .studio-reply-history { display: grid; gap: var(--space-4); padding: 0; margin: var(--space-4) 0 0; list-style: none; }
-.studio-reply-history li { padding-inline-start: var(--space-4); border-inline-start: 0.1875rem solid var(--color-success); }
-.studio-reply-history li > div { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); color: var(--color-text-muted); font-size: var(--type-caption); }
-.studio-reply-history li > div span { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--color-success); font-weight: 740; }
+.studio-reply-history li { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); padding-inline-start: var(--space-4); border-inline-start: 0.1875rem solid var(--color-success); }
+.studio-reply-body { min-width: 0; flex: 1; }
+.studio-reply-kind { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--color-success); font-size: var(--type-caption); font-weight: 740; }
+.studio-reply-meta { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); max-width: 50%; color: var(--color-text-muted); font-size: var(--type-caption); text-align: end; }
+.studio-reply-delete.button--quiet { color: var(--color-danger); white-space: nowrap; }
+.studio-reply-delete.button--quiet:hover:not(:disabled) { color: var(--color-danger); background: var(--color-danger-surface); }
 .studio-reply-history li p { margin-block-start: var(--space-2); color: var(--color-text); overflow-wrap: anywhere; white-space: pre-wrap; }
 .studio-reply-history li small { display: block; margin-block-start: var(--space-2); color: var(--color-text-muted); }
 

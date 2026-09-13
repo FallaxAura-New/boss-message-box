@@ -58,7 +58,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     );
   }
   if ((init.method === "POST" || init.method === "PUT" || init.method === "DELETE") &&
-      /\/feedbacks\/[^/]+\/(replies|todo|moderation)$/.test(path)) {
+      /\/feedbacks\/[^/]+\/(replies(?:\/[^/]+)?|todo|moderation)$/.test(path)) {
     window.dispatchEvent(new Event("studio:changed"));
   }
   return body as T;
@@ -140,6 +140,10 @@ export function createStudioReply(
     `/api/studio/feedbacks/${encodeURIComponent(feedbackId)}/replies`,
     jsonInit("POST", { content, ...(replyType ? { replyType } : {}), ...(requestKey ? { requestKey } : {}) }),
   );
+}
+
+export function deleteStudioReply(feedbackId: string, replyId: string): Promise<StudioFeedbackDetailSuccess> {
+  return request(`/api/studio/feedbacks/${encodeURIComponent(feedbackId)}/replies/${encodeURIComponent(replyId)}`, jsonInit("DELETE"));
 }
 
 export function updateStudioTodo(feedbackId: string, enabled: boolean): Promise<StudioTodoSuccess> {

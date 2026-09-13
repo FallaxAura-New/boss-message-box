@@ -41,6 +41,7 @@ pnpm run check:visual    # 执行响应式界面检查
 pnpm run check:visual:live        # 检查分流、导入与直播画面
 pnpm run check:visual:responsive  # 检查直播正文的宽度与文字缩放
 pnpm run check:visual:order       # 检查直播展示的排序界面
+pnpm run check:visual:reply       # 检查历史回复的删除界面
 pnpm run db:migrate:local
 pnpm run db:migrate:remote
 pnpm run deploy
@@ -76,6 +77,13 @@ public/                静态资源
 随后按当前部署流程发布代码。管理员凭据、生产数据处理规则及其他内部运维信息不在 README 中维护。
 
 `0005` 迁移保留现有账号和留言，但会禁用仍使用旧初始密码的账号。需要时使用 `pnpm run admin:password --username <账号> --remote` 设置新密码。已自行更换密码的账号不受此迁移影响。
+
+### 删除历史回复
+
+- 普通 Studio 留言详情的每条历史回复，在时间下方提供“删除回复”。确认后只删除该条回复，不改动观众留言、图片、手机号、审核、分流和直播批次。
+- 回复条数、最后回复人、分类统计、公开历史与后续导出都按剩余回复重新计算；删除最后一条后不再归为已回复，已过滤留言保持过滤。未提交的回复草稿保留，失败可就地重试。
+- `DELETE /api/studio/feedbacks/:feedbackId/replies/:replyId` 要求登录、同源请求和普通模式，直播模式禁止删除。删除与审计记录在同一事务中写入，同一删除可安全重试。
+- 发布前先应用 `0011_reply_deletion.sql` 再发布代码，该迁移只新增表和索引。`reply_deletions` 只保留回复标识、原创建请求标识、原回复人、删除人和时间，不保留正文，用于审计并阻止延迟到达的创建请求把回复写回；删除同样兼容历史迁移回复，会一并清除旧回复字段。
 
 ### 留言导出与小店绑定手机号
 

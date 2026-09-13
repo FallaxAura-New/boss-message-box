@@ -76,6 +76,7 @@ export interface StudioRepository {
   listFeedbacks(input: StudioListInput): Promise<StudioFeedbackListSuccess>;
   searchFeedbacks(input: StudioSearchInput): Promise<StudioFeedbackListSuccess>;
   findFeedback(feedbackId: string): Promise<StudioFeedbackDetail | null>;
+  deleteReply(input: { feedbackId: string; replyId: string; adminId: string; now: number }): Promise<boolean>;
   appendReply(input: {
     requestKey?: string;
     liveMode?: boolean;

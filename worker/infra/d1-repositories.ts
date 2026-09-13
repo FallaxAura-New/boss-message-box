@@ -347,6 +347,7 @@ export class D1FeedbackRepository implements FeedbackRepository {
       .prepare(
         `SELECT f.id, f.topic, f.custom_topic, f.content, f.internal_status, f.reply_type,
                 f.reply_content, f.moderation_status, f.created_at, f.updated_at,
+                EXISTS (SELECT 1 FROM reply_deletions d WHERE d.feedback_id = f.id) AS has_reply_deletion,
                 (SELECT COUNT(*) FROM feedback_images i WHERE i.feedback_id = f.id) AS image_count
          FROM feedback f
          WHERE f.douyin_nickname = ?
@@ -362,6 +363,7 @@ export class D1FeedbackRepository implements FeedbackRepository {
         internal_status: string;
         reply_type: "message" | "livestream" | null;
         reply_content: string | null;
+        has_reply_deletion: number;
         created_at: number;
         updated_at: number;
         image_count: number;
@@ -400,7 +402,7 @@ export class D1FeedbackRepository implements FeedbackRepository {
         (row.internal_status === "message_replied" || row.internal_status === "livestream_replied") &&
         row.reply_content &&
         row.reply_type;
-      if (replies.length === 0 && legacyReplied) {
+      if (replies.length === 0 && legacyReplied && !row.has_reply_deletion) {
         replies = [{
           id: `legacy-${row.id}`,
           replyType: row.reply_type === "livestream" ? "live" : "message",

@@ -119,6 +119,21 @@ export class StudioService {
     };
   }
 
+  async deleteReply(input: {
+    feedbackId: string;
+    replyId: string;
+    session: StudioSessionRecord;
+    now: number;
+  }): Promise<StudioFeedbackDetailSuccess> {
+    if (input.session.mode !== "normal") throw new PublicError(403, "FORBIDDEN", "请退出直播模式后删除回复");
+    const deleted = await this.dependencies.studio.deleteReply({
+      feedbackId: input.feedbackId, replyId: input.replyId,
+      adminId: input.session.admin.id, now: input.now,
+    });
+    if (!deleted) throw new PublicError(404, "NOT_FOUND", "回复不存在，请刷新后查看");
+    return this.feedback(input.feedbackId, input.session);
+  }
+
   async todo(input: {
     feedbackId: string;
     isTodo: boolean;

@@ -329,9 +329,10 @@ export class D1StudioRepository implements StudioRepository {
           `INSERT INTO feedback_replies (id, feedback_id, reply_type, content, admin_id, created_at, request_key)
            SELECT ?, id, ?, ?, ?, ?, ? FROM feedback
            WHERE id = ? AND (? = 0 OR moderation_status IN ('kept', 'failed'))
+           AND NOT EXISTS (SELECT 1 FROM reply_deletions WHERE reply_admin_id = ? AND request_key = ?)
            ON CONFLICT(admin_id, request_key) DO NOTHING`,
         )
-        .bind(input.id, input.replyType, input.content, input.admin.id, input.now, input.requestKey ?? null, input.feedbackId, input.liveMode ? 1 : 0),
+        .bind(input.id, input.replyType, input.content, input.admin.id, input.now, input.requestKey ?? null, input.feedbackId, input.liveMode ? 1 : 0, input.admin.id, input.requestKey ?? null),
       this.db
         .prepare(`UPDATE feedback SET is_todo = 0, updated_at = ?, moderation_attempt_token = NULL,
            moderation_status = CASE WHEN moderation_status = 'pending' THEN 'kept' ELSE moderation_status END,
@@ -366,6 +367,28 @@ export class D1StudioRepository implements StudioRepository {
       replyCount: summary.replyCount,
       latestReplyAdmin: summary.latestReplyAdmin,
     };
+  }
+
+  async deleteReply(input: { feedbackId: string; replyId: string; adminId: string; now: number }): Promise<boolean> {
+    await this.db.batch([
+      this.db.prepare(`INSERT INTO reply_deletions
+        (reply_id, feedback_id, reply_admin_id, request_key, deleted_by, deleted_at)
+        SELECT id, feedback_id, admin_id, request_key, ?, ? FROM feedback_replies
+        WHERE id = ? AND feedback_id = ? ON CONFLICT(reply_id) DO NOTHING`)
+        .bind(input.adminId, input.now, input.replyId, input.feedbackId),
+      this.db.prepare(`UPDATE feedback SET updated_at = ?
+        WHERE id = ? AND EXISTS (SELECT 1 FROM feedback_replies WHERE id = ? AND feedback_id = ?)`)
+        .bind(input.now, input.feedbackId, input.replyId, input.feedbackId),
+      this.db.prepare("DELETE FROM feedback_replies WHERE id = ? AND feedback_id = ?")
+        .bind(input.replyId, input.feedbackId),
+      this.db.prepare(`UPDATE feedback SET internal_status = 'unprocessed', reply_type = NULL, reply_content = NULL
+        WHERE id = ? AND ? = 'legacy-' || id
+        AND EXISTS (SELECT 1 FROM reply_deletions WHERE reply_id = ? AND feedback_id = ?)`)
+        .bind(input.feedbackId, input.replyId, input.replyId, input.feedbackId),
+    ]);
+    // A retry after a lost response succeeds without deleting or auditing twice.
+    return Boolean(await this.db.prepare("SELECT 1 FROM reply_deletions WHERE reply_id = ? AND feedback_id = ?")
+      .bind(input.replyId, input.feedbackId).first());
   }
 
   async setTodo(input: {

@@ -42,6 +42,7 @@ export type StudioBindings = {
 };
 
 const feedbackIdSchema = z.string().uuid("留言标识无效");
+const replyIdSchema = z.string().min(1).max(100).regex(/^[a-zA-Z0-9-]+$/, "回复标识无效");
 const imageIdSchema = z.string().uuid("图片标识无效");
 const listQuerySchema = z
   .object({
@@ -302,6 +303,16 @@ studioRoutes.post("/feedbacks/:feedbackId/replies", async (context) => {
       now: Date.now(),
     }),
   );
+});
+
+studioRoutes.delete("/feedbacks/:feedbackId/replies/:replyId", async (context) => {
+  requireSameOrigin(context.req.raw);
+  return context.json(await services(context.env).studio.deleteReply({
+    feedbackId: parseId(feedbackIdSchema, context.req.param("feedbackId")),
+    replyId: parseId(replyIdSchema, context.req.param("replyId")),
+    session: context.get("studioSession"),
+    now: Date.now(),
+  }));
 });
 
 studioRoutes.post("/feedbacks/:feedbackId/todo", async (context) => {

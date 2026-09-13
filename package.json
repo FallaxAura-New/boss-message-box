@@ -18,6 +18,7 @@
     "check:visual:live": "node scripts/live-visual-check.mjs",
     "check:visual:responsive": "node scripts/check-live-responsive.mjs",
     "check:visual:order": "node scripts/check-live-order.mjs",
+    "check:visual:reply": "node scripts/check-reply-delete.mjs",
     "check:contrast": "node scripts/check-contrast.mjs",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:contrast && pnpm run build",
     "cf:typegen": "wrangler types",

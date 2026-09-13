@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { D1StudioRepository } from "../../worker/infra/d1-studio-repositories";
+import { D1FeedbackRepository } from "../../worker/infra/d1-repositories";
+import { readStudioExport } from "../../worker/infra/d1-studio-export";
 
 const USER_ID = "studio-test-user";
 const ADMIN_ZD = { id: "admin-zd", username: "zd" };
@@ -85,6 +87,47 @@ describe("D1 Studio repository", () => {
       env.BOSS_MESSAGE_DB.prepare("DELETE FROM admin_sessions"),
     ]);
     await seedUser();
+  });
+
+  it("deletes only the chosen reply, updates all readers, and prevents create retry resurrection", async () => {
+    const id = "delete-test";
+    await seedFeedback({ id, createdAt: 1000 });
+    const repository = new D1StudioRepository(env.BOSS_MESSAGE_DB);
+    const original = await repository.findFeedback(id);
+    const first = { id: "first", feedbackId: id, replyType: "live" as const, content: "第一条回复", admin: ADMIN_ZD, now: 2000, requestKey: "original-request" };
+    await repository.appendReply(first);
+    await repository.appendReply({ ...first, id: "second", replyType: "message", content: "第二条回复", admin: ADMIN_FA, now: 3000, requestKey: "second-request" });
+    const deletion = { feedbackId: id, replyId: "second", adminId: ADMIN_ZD.id, now: 4000 };
+    expect(await repository.deleteReply({ ...deletion, feedbackId: "wrong" })).toBe(false);
+    await expect(repository.deleteReply({ ...deletion, adminId: "nonexistent-admin" })).rejects.toThrow();
+    expect((await repository.findFeedback(id))?.replyCount).toBe(2);
+    expect(await repository.deleteReply(deletion)).toBe(true);
+    expect(await repository.deleteReply(deletion)).toBe(true);
+    expect(await repository.findFeedback(id)).toMatchObject({ replyCount: 1, status: "replied", latestReplyAdmin: "zd", content: original?.content, routingStatus: original?.routingStatus, moderationStatus: "kept" });
+    expect((await repository.listFeedbacks({ view: "message", topic: null, page: 1, snapshot: null })).items).toHaveLength(0);
+    expect((await new D1FeedbackRepository(env.BOSS_MESSAGE_DB).findHistory("测试昵称"))?.[0]?.replies.map(reply => reply.id)).toEqual(["first"]);
+    expect((await readStudioExport(env.BOSS_MESSAGE_DB, { view: "all", topic: null, snapshot: null, before: null })).items[0]?.replies.map(reply => reply.id)).toEqual(["first"]);
+    expect(await repository.deleteReply({ ...deletion, replyId: "first", now: 5000 })).toBe(true);
+    expect(await repository.findFeedback(id)).toMatchObject({ replies: [], replyCount: 0, status: "unreplied", latestReplyAdmin: null, content: original?.content, isTodo: false });
+    expect((await repository.listFeedbacks({ view: "unreplied", topic: null, page: 1, snapshot: null })).items.map(item => item.id)).toEqual([id]);
+    expect((await repository.getStats(0)).todayReplied).toBe(0);
+    await expect(repository.appendReply({ ...first, id: "late-retry", now: 6000 })).rejects.toMatchObject({ status: 409 });
+    expect((await repository.findFeedback(id))?.replies).toEqual([]);
+    expect((await env.BOSS_MESSAGE_DB.prepare("SELECT reply_id, deleted_by FROM reply_deletions WHERE feedback_id = ? ORDER BY reply_id").bind(id).all()).results).toEqual([
+      { reply_id: "first", deleted_by: ADMIN_ZD.id }, { reply_id: "second", deleted_by: ADMIN_ZD.id },
+    ]);
+  });
+
+  it("removes migrated reply content without reviving the legacy public fallback", async () => {
+    const id = "legacy-delete";
+    await seedFeedback({ id, createdAt: 1000, moderationStatus: "filtered" });
+    await env.BOSS_MESSAGE_DB.prepare("UPDATE feedback SET internal_status = 'message_replied', reply_type = 'message', reply_content = '旧回复' WHERE id = ?").bind(id).run();
+    await seedReply({ id: `legacy-${id}`, feedbackId: id, type: "message", adminId: ADMIN_FA.id, createdAt: 2000 });
+    const repository = new D1StudioRepository(env.BOSS_MESSAGE_DB);
+    await repository.deleteReply({ feedbackId: id, replyId: `legacy-${id}`, adminId: ADMIN_ZD.id, now: 3000 });
+    expect(await repository.findFeedback(id)).toMatchObject({ status: "filtered", moderationStatus: "filtered", replies: [] });
+    expect((await new D1FeedbackRepository(env.BOSS_MESSAGE_DB).findHistory("测试昵称"))?.[0]).toMatchObject({ replies: [], replyContent: null });
+    expect(await env.BOSS_MESSAGE_DB.prepare("SELECT content, reply_content FROM feedback WHERE id = ?").bind(id).first()).toEqual({ content: `留言 ${id}`, reply_content: null });
   });
 
   it("uses reply existence for filters and keeps an unreplied todo in both lists", async () => {

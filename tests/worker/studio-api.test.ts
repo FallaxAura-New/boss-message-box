@@ -133,6 +133,24 @@ describe("Studio API", () => {
     })).status).toBe(403);
   });
 
+  it("restricts reply deletion to authenticated same-origin normal sessions", async () => {
+    const { feedbackId } = await seedFeedbackWithImage();
+    const { cookie } = await login();
+    const created = await api(`/api/studio/feedbacks/${feedbackId}/replies`, { method: "POST", headers: { Cookie: cookie }, body: JSON.stringify({ content: "要删除的回复", replyType: "message" }) });
+    const { reply } = await created.json() as { reply: { id: string } };
+    const path = `/api/studio/feedbacks/${feedbackId}/replies/${reply.id}`;
+    expect((await api(path, { method: "DELETE" })).status).toBe(401);
+    expect((await SELF.fetch(`${ORIGIN}${path}`, { method: "DELETE", headers: { Cookie: cookie } })).status).toBe(403);
+    await testEnv.BOSS_MESSAGE_DB.prepare("UPDATE admin_sessions SET mode = 'live'").run();
+    expect((await api(path, { method: "DELETE", headers: { Cookie: cookie } })).status).toBe(403);
+    await testEnv.BOSS_MESSAGE_DB.prepare("UPDATE admin_sessions SET mode = 'normal'").run();
+    expect((await api(`/api/studio/feedbacks/${crypto.randomUUID()}/replies/${reply.id}`, { method: "DELETE", headers: { Cookie: cookie } })).status).toBe(404);
+    const response = await api(path, { method: "DELETE", headers: { Cookie: cookie } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, item: { content: "需要处理的留言", replies: [], status: "unreplied" } });
+    expect((await api(path, { method: "DELETE", headers: { Cookie: cookie } })).status).toBe(200);
+  });
+
   it("rate limits repeated login failures", async () => {
     let last: Response | null = null;
     for (let attempt = 0; attempt < 11; attempt += 1) {

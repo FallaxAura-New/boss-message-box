@@ -1,7 +1,6 @@
 import {
   ArrowLeft,
   ArrowRight,
-  ChatCircleText,
   CheckCircle,
   Clock,
   Eye,
@@ -18,6 +17,7 @@ import { TOPIC_LABELS, TOPIC_VALUES, type Topic } from "../../../shared/contract
 import { studioFeedbackViewSchema, type StudioFeedbackDetail, type StudioReplyType } from "../../../shared/studio-contracts";
 import {
   createStudioReply,
+  deleteStudioReply,
   getStudioFeedback,
   revealStudioPhone,
   retryStudioModeration,
@@ -41,6 +41,7 @@ import {
 } from "../live-sequence";
 import { getActiveBatch } from "../live-api";
 import { LiveMessageText } from "../components/LiveMessageText";
+import { ReplyHistory } from "../components/ReplyHistory";
 
 function formatDate(timestamp: number): string {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -125,6 +126,7 @@ export function FeedbackDetailPage() {
   const [replySubmitted, setReplySubmitted] = useState(false);
   const [moderationNotice, setModerationNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [deletingReply, setDeletingReply] = useState(false);
   const [moderationBusy, setModerationBusy] = useState(false);
   const [navigationDirection, setNavigationDirection] = useState<StepDirection | null>(null);
   const navigationBusy = navigationDirection !== null;
@@ -366,6 +368,21 @@ export function FeedbackDetailPage() {
         setReplyPending(false);
       }
       throw reason;
+    }
+  };
+
+  const deleteReply = async (replyId: string) => {
+    if (liveMode || actionRef.current || moderationBusy) throw new Error("请等待当前操作完成后重试");
+    actionRef.current = true;
+    setDeletingReply(true);
+    try {
+      const result = await deleteStudioReply(feedbackId, replyId);
+      setLoaded(current => current?.feedbackId === feedbackId ? { feedbackId, item: result.item } : current);
+      if (currentFeedbackRef.current === feedbackId) setReplySubmitted(false);
+      invalidateLiveFeedback(feedbackId);
+    } finally {
+      actionRef.current = false;
+      setDeletingReply(false);
     }
   };
 
@@ -729,28 +746,14 @@ export function FeedbackDetailPage() {
           </section>
         )}
 
-        <section className="studio-detail-section" aria-labelledby="studio-replies-title">
-          <div className="studio-section-title"><span id="studio-replies-title">历史回复</span><small>{replies.length} 条</small></div>
-          {replies.length === 0 ? <p className="studio-inline-empty">还没有回复。</p> : (
-            <ol className="studio-reply-history">
-              {replies.map((reply) => (
-                <li key={reply.id}>
-                  <div>
-                    <span><ChatCircleText aria-hidden="true" />{reply.replyType === "live" ? "直播回复" : "留言回复"}</span>
-                    <time dateTime={new Date(reply.createdAt).toISOString()}>{formatDate(reply.createdAt)}</time>
-                  </div>
-                  <p>{reply.content}</p>
-                  <small>回复人：{reply.adminUsername ?? "历史回复"}</small>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
+        <ReplyHistory key={feedbackId} replies={replies}
+          disabled={submitting || moderationBusy || navigationBusy || replyPending}
+          onDelete={deleteReply} />
       </article>
 
       <section className="studio-reply-composer" aria-labelledby="studio-compose-title">
         <div className="studio-section-title"><h2 id="studio-compose-title">追加回复</h2><small>{replyContent.length} / 2000</small></div>
-        <fieldset className="studio-reply-types" disabled={submitting || navigationBusy || replyPending}>
+        <fieldset className="studio-reply-types" disabled={submitting || deletingReply || navigationBusy || replyPending}>
           <legend>回复方式</legend>
           {(["live", "message"] as const).map((type) => (
             <label key={type}>
@@ -766,7 +769,7 @@ export function FeedbackDetailPage() {
           value={replyContent}
           maxLength={2000}
           rows={7}
-          disabled={submitting || navigationBusy || replyPending}
+          disabled={submitting || deletingReply || navigationBusy || replyPending}
           placeholder="填写要追加的回复内容"
           aria-invalid={Boolean(replyError)}
           aria-describedby={replyError ? "studio-reply-error" : undefined}
@@ -800,7 +803,7 @@ export function FeedbackDetailPage() {
               {atEnd ? "已经是最后一条" : "下一条留言"}
             </Button>
           ) : (
-            <Button type="button" loading={submitting} loadingLabel="正在提交" icon={<PaperPlaneTilt aria-hidden="true" weight="fill" />} onClick={requestSubmit}>提交</Button>
+            <Button type="button" loading={submitting} disabled={deletingReply} loadingLabel="正在提交" icon={<PaperPlaneTilt aria-hidden="true" weight="fill" />} onClick={requestSubmit}>提交</Button>
           )}
         </div>
       </section>
